@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a provider, policy, or workflow improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the access-management problem rather than only the desired command.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security considerations
+      description: Note effects on credential delivery, permissions, provider hosts, or agent access.
+    validations:
+      required: true

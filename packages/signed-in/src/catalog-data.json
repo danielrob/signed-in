@@ -1,0 +1,1037 @@
+{
+  "schemaVersion": 1,
+  "services": {
+    "aws": {
+      "label": "AWS",
+      "description": "Cloud infrastructure, release storage, CDN, telemetry, and operational services.",
+      "docsUrl": "https://docs.aws.amazon.com/cli/",
+      "existingLogin": {
+        "source": "aws",
+        "detectArgs": [
+          "sts",
+          "get-caller-identity"
+        ],
+        "identityArgs": [
+          "sts",
+          "get-caller-identity",
+          "--query",
+          "Account",
+          "--output",
+          "text"
+        ]
+      },
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "accessKeyId",
+          "label": "AWS access key ID",
+          "env": "AWS_ACCESS_KEY_ID",
+          "portable": true,
+          "secret": true
+        },
+        {
+          "id": "secretAccessKey",
+          "label": "AWS secret access key",
+          "env": "AWS_SECRET_ACCESS_KEY",
+          "portable": true,
+          "secret": true
+        },
+        {
+          "id": "sessionToken",
+          "label": "AWS session token",
+          "env": "AWS_SESSION_TOKEN",
+          "portable": false,
+          "required": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "aws",
+        "delivery": "proxy",
+        "clearEnv": [
+          "AWS_CONFIG_FILE",
+          "AWS_DEFAULT_PROFILE",
+          "AWS_PROFILE",
+          "AWS_SHARED_CREDENTIALS_FILE"
+        ],
+        "verifyArgs": [
+          "sts",
+          "get-caller-identity"
+        ]
+      },
+      "session": {
+        "env": {
+          "AWS_DEFAULT_PROFILE": "signed-in",
+          "AWS_PROFILE": "signed-in"
+        },
+        "loginArgs": [
+          "login",
+          "--profile",
+          "signed-in"
+        ],
+        "remoteLoginArgs": [
+          "login",
+          "--remote",
+          "--profile",
+          "signed-in"
+        ],
+        "retain": true,
+        "resolvers": [
+          {
+            "args": [
+              "configure",
+              "export-credentials",
+              "--format",
+              "process"
+            ],
+            "format": "aws-process-json",
+            "persist": false
+          }
+        ]
+      },
+      "http": {
+        "baseUrl": "https://sts.amazonaws.com",
+        "allowHosts": [
+          "*.amazonaws.com",
+          "*.api.aws"
+        ],
+        "auth": {
+          "type": "aws-sigv4",
+          "accessKeyField": "accessKeyId",
+          "defaultRegion": "us-east-1",
+          "defaultService": "sts",
+          "secretKeyField": "secretAccessKey",
+          "sessionTokenField": "sessionToken"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "sts",
+            "assume-role"
+          ],
+          [
+            "sts",
+            "get-session-token"
+          ],
+          [
+            "sts",
+            "get-federation-token"
+          ],
+          [
+            "iam",
+            "create-access-key"
+          ],
+          [
+            "secretsmanager",
+            "get-secret-value"
+          ],
+          [
+            "ssm",
+            "get-parameter",
+            "--with-decryption"
+          ]
+        ]
+      },
+      "identityArgs": [
+        "sts",
+        "get-caller-identity",
+        "--query",
+        "Account",
+        "--output",
+        "text"
+      ],
+      "installHint": "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
+      "ping": {
+        "interface": "native",
+        "args": [
+          "sts",
+          "get-caller-identity"
+        ]
+      },
+      "signIn": "interactive"
+    },
+    "gcp": {
+      "label": "Google Cloud",
+      "description": "Google Cloud projects, IAM, APIs, and hosted resources.",
+      "docsUrl": "https://cloud.google.com/sdk/gcloud/reference",
+      "existingLogin": {
+        "source": "gcloud",
+        "detectArgs": [
+          "auth",
+          "list",
+          "--filter=status:ACTIVE",
+          "--format=value(account)"
+        ],
+        "identityArgs": [
+          "auth",
+          "list",
+          "--filter=status:ACTIVE",
+          "--format=value(account)"
+        ],
+        "paths": [
+          {
+            "source": ".config/gcloud",
+            "target": ".config/gcloud"
+          }
+        ]
+      },
+      "credentialMode": "independent",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "Google Cloud access token",
+          "env": "CLOUDSDK_AUTH_ACCESS_TOKEN",
+          "portable": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "gcloud",
+        "delivery": "proxy",
+        "verifyArgs": [
+          "auth",
+          "list"
+        ]
+      },
+      "session": {
+        "loginArgs": [
+          "auth",
+          "login",
+          "--brief"
+        ],
+        "remoteLoginArgs": [
+          "auth",
+          "login",
+          "--no-launch-browser",
+          "--brief"
+        ],
+        "retain": true,
+        "resolvers": [
+          {
+            "args": [
+              "auth",
+              "print-access-token"
+            ],
+            "format": "text",
+            "persist": false,
+            "targetField": "accessToken"
+          }
+        ]
+      },
+      "http": {
+        "baseUrl": "https://cloudresourcemanager.googleapis.com",
+        "allowHosts": [
+          "*.googleapis.com"
+        ],
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "auth",
+            "print-access-token"
+          ],
+          [
+            "auth",
+            "print-identity-token"
+          ],
+          [
+            "iam",
+            "service-accounts",
+            "keys",
+            "create"
+          ]
+        ]
+      },
+      "identityArgs": [
+        "config",
+        "get-value",
+        "account"
+      ],
+      "installHint": "https://cloud.google.com/sdk/docs/install",
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "https://openidconnect.googleapis.com/v1/userinfo"
+      },
+      "signIn": "interactive"
+    },
+    "convex": {
+      "label": "Convex",
+      "description": "Deployments, data, functions, projects, and insights.",
+      "docsUrl": "https://docs.convex.dev/cli/overview",
+      "existingLogin": {
+        "source": "convex",
+        "detectArgs": [
+          "login",
+          "status"
+        ],
+        "identityArgs": [
+          "login",
+          "status"
+        ],
+        "identityPattern": "^\\s*-\\s+(.+?)\\s+\\(",
+        "identityStream": "stderr",
+        "paths": [
+          {
+            "source": ".convex",
+            "target": ".convex"
+          }
+        ]
+      },
+      "credentialMode": "independent",
+      "cli": {
+        "command": "convex",
+        "delivery": "session"
+      },
+      "session": {
+        "loginArgs": [
+          "login",
+          "--device-name",
+          "signed-in",
+          "--login-flow",
+          "poll",
+          "--no-open"
+        ],
+        "remoteLoginArgs": [
+          "login",
+          "--device-name",
+          "signed-in",
+          "--login-flow",
+          "poll",
+          "--no-open"
+        ],
+        "retain": true
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "deployment",
+            "token",
+            "create"
+          ]
+        ]
+      },
+      "installHint": "https://docs.convex.dev/cli",
+      "ping": {
+        "interface": "native",
+        "args": [
+          "login",
+          "status"
+        ]
+      },
+      "signIn": "interactive"
+    },
+    "clerk": {
+      "label": "Clerk",
+      "description": "Users, organizations, sessions, applications, and auth configuration.",
+      "docsUrl": "https://clerk.com/docs/reference/backend-api",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "secretKey",
+          "label": "Clerk secret key",
+          "env": "CLERK_SECRET_KEY",
+          "helpUrl": "https://dashboard.clerk.com/last-active?path=api-keys",
+          "portable": true,
+          "prefixes": [
+            "sk_test_",
+            "sk_live_"
+          ],
+          "secret": true
+        }
+      ],
+      "http": {
+        "baseUrl": "https://api.clerk.com",
+        "auth": {
+          "type": "bearer",
+          "field": "secretKey"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/users?limit=1"
+      },
+      "signIn": "manual"
+    },
+    "netlify": {
+      "label": "Netlify",
+      "description": "Sites, deploy metadata, domains, environment configuration, functions, and logs.",
+      "docsUrl": "https://docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api/",
+      "existingLogin": {
+        "source": "netlify",
+        "detectArgs": [
+          "status"
+        ],
+        "paths": [
+          {
+            "platform": "darwin",
+            "source": "Library/Preferences/netlify",
+            "target": "Library/Preferences/netlify"
+          },
+          {
+            "platform": "linux",
+            "source": ".config/netlify",
+            "target": ".config/netlify"
+          },
+          {
+            "platform": "win32",
+            "source": "AppData/Roaming/netlify/Config",
+            "target": "AppData/Roaming/netlify/Config"
+          }
+        ]
+      },
+      "credentialMode": "independent",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "Netlify personal access token",
+          "env": "NETLIFY_AUTH_TOKEN",
+          "helpUrl": "https://app.netlify.com/user/applications#personal-access-tokens",
+          "portable": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "netlify",
+        "delivery": "proxy",
+        "verifyArgs": [
+          "status"
+        ]
+      },
+      "session": {
+        "loginArgs": [
+          "login"
+        ],
+        "retain": false,
+        "resolvers": [
+          {
+            "args": [],
+            "format": "json-file-key",
+            "fieldMap": {
+              "accessToken": "token"
+            },
+            "persist": true
+          }
+        ]
+      },
+      "http": {
+        "baseUrl": "https://api.netlify.com",
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "deploy"
+          ]
+        ]
+      },
+      "installHint": "https://docs.netlify.com/api-and-cli-guides/cli-guides/get-started-with-cli/",
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/api/v1/user"
+      },
+      "signIn": "interactive"
+    },
+    "polar": {
+      "label": "Polar",
+      "description": "Products, benefits, prices, subscriptions, customers, orders, webhooks, and billing operations.",
+      "docsUrl": "https://polar.sh/docs/api-reference",
+      "credentialMode": "independent",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "Polar organization access token",
+          "env": "POLAR_ACCESS_TOKEN",
+          "helpUrl": "https://polar.sh/settings",
+          "portable": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "polar",
+        "delivery": "session"
+      },
+      "session": {
+        "loginArgs": [
+          "login"
+        ],
+        "retain": true
+      },
+      "http": {
+        "baseUrl": "https://api.polar.sh",
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "logout"
+          ]
+        ]
+      },
+      "installHint": "https://github.com/polarsource/cli",
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/organizations/?limit=1"
+      },
+      "signIn": "interactive"
+    },
+    "cloudflare": {
+      "label": "Cloudflare",
+      "description": "Workers, R2, DNS, zones, domains, and Cloudflare account resources.",
+      "docsUrl": "https://developers.cloudflare.com/api/",
+      "existingLogin": {
+        "source": "wrangler",
+        "detectArgs": [
+          "whoami"
+        ],
+        "paths": [
+          {
+            "source": ".wrangler",
+            "target": ".wrangler"
+          },
+          {
+            "platform": "darwin",
+            "source": "Library/Preferences/.wrangler",
+            "target": ".config/.wrangler"
+          },
+          {
+            "platform": "linux",
+            "source": ".config/.wrangler",
+            "target": ".config/.wrangler"
+          },
+          {
+            "platform": "win32",
+            "source": "AppData/Roaming/xdg.config/.wrangler",
+            "target": ".config/.wrangler"
+          }
+        ]
+      },
+      "credentialMode": "independent",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "Cloudflare access token",
+          "env": "CLOUDFLARE_API_TOKEN",
+          "portable": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "wrangler",
+        "delivery": "proxy",
+        "verifyArgs": [
+          "whoami"
+        ]
+      },
+      "session": {
+        "loginArgs": [
+          "login",
+          "--no-use-keyring"
+        ],
+        "retain": true,
+        "resolvers": [
+          {
+            "args": [
+              "auth",
+              "token",
+              "--json"
+            ],
+            "format": "json",
+            "fieldMap": {
+              "accessToken": "/token"
+            },
+            "persist": false
+          }
+        ]
+      },
+      "http": {
+        "baseUrl": "https://api.cloudflare.com",
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "auth",
+            "token"
+          ]
+        ]
+      },
+      "installHint": "https://developers.cloudflare.com/workers/wrangler/install-and-update/",
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/client/v4/user"
+      },
+      "signIn": "interactive"
+    },
+    "github": {
+      "label": "GitHub",
+      "description": "Repositories, pull requests, issues, releases, Actions, teams, and organization resources.",
+      "docsUrl": "https://docs.github.com/en/rest",
+      "existingLogin": {
+        "source": "gh",
+        "detectArgs": [
+          "auth",
+          "status",
+          "--active",
+          "--hostname",
+          "github.com"
+        ],
+        "identityArgs": [
+          "api",
+          "user",
+          "--jq",
+          ".login"
+        ]
+      },
+      "credentialMode": "independent",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "GitHub access token",
+          "env": "GH_TOKEN",
+          "portable": false,
+          "secret": true
+        }
+      ],
+      "cli": {
+        "command": "gh",
+        "delivery": "proxy",
+        "proxySocket": {
+          "configPath": ".config/gh/config.yml",
+          "configTemplate": "http_unix_socket: {socket}\n"
+        },
+        "verifyArgs": [
+          "api",
+          "user"
+        ]
+      },
+      "session": {
+        "loginArgs": [
+          "auth",
+          "login",
+          "--hostname",
+          "github.com",
+          "--git-protocol",
+          "https",
+          "--web",
+          "--scopes",
+          "workflow",
+          "--insecure-storage",
+          "--skip-ssh-key"
+        ],
+        "retain": false,
+        "resolvers": [
+          {
+            "args": [
+              "auth",
+              "token"
+            ],
+            "format": "text",
+            "persist": true,
+            "targetField": "accessToken"
+          }
+        ]
+      },
+      "http": {
+        "baseUrl": "https://api.github.com",
+        "allowHosts": [
+          "uploads.github.com"
+        ],
+        "egressHosts": [
+          "github.com"
+        ],
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        }
+      },
+      "policy": {
+        "denyCliPatterns": [
+          [
+            "auth",
+            "token"
+          ],
+          [
+            "auth",
+            "refresh"
+          ],
+          [
+            "extension",
+            "exec"
+          ]
+        ]
+      },
+      "identityArgs": [
+        "api",
+        "user",
+        "--jq",
+        ".login"
+      ],
+      "installHint": "https://cli.github.com/",
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/user"
+      },
+      "signIn": "interactive"
+    },
+    "resend": {
+      "label": "Resend",
+      "description": "Domains, API resources, and operational email management.",
+      "docsUrl": "https://resend.com/docs/api-reference/introduction",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "apiKey",
+          "label": "Resend API key",
+          "env": "RESEND_API_KEY",
+          "helpUrl": "https://resend.com/api-keys",
+          "portable": true,
+          "secret": true
+        }
+      ],
+      "http": {
+        "baseUrl": "https://api.resend.com",
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/domains?limit=1"
+      },
+      "signIn": "manual"
+    },
+    "openai": {
+      "label": "OpenAI",
+      "description": "Models, files, vector stores, usage, and project API resources.",
+      "docsUrl": "https://platform.openai.com/docs/api-reference",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "apiKey",
+          "label": "OpenAI project API key",
+          "env": "OPENAI_API_KEY",
+          "helpUrl": "https://platform.openai.com/api-keys",
+          "portable": true,
+          "secret": true
+        }
+      ],
+    "cli": {
+      "command": "openai",
+      "delivery": "proxy"
+    },
+    "installHint": "https://github.com/openai/openai-cli#installation",
+      "http": {
+        "baseUrl": "https://api.openai.com",
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/models"
+      },
+      "signIn": "manual"
+    },
+    "sentry": {
+      "label": "Sentry",
+      "description": "Organizations, projects, releases, issues, events, and source maps.",
+      "docsUrl": "https://docs.sentry.io/api/",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "authToken",
+          "label": "Sentry auth token",
+          "env": "SENTRY_AUTH_TOKEN",
+          "helpUrl": "https://sentry.io/settings/auth-tokens/",
+          "portable": true,
+          "secret": true
+        }
+      ],
+    "cli": {
+      "command": "sentry-cli",
+      "delivery": "proxy"
+    },
+    "installHint": "https://github.com/getsentry/sentry-cli#installation",
+      "http": {
+        "baseUrl": "https://sentry.io",
+        "auth": {
+          "type": "bearer",
+          "field": "authToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/api/0/organizations/"
+      },
+      "signIn": "manual"
+    },
+    "better-stack": {
+      "label": "Better Stack",
+      "description": "Telemetry sources, monitors, incidents, teams, and observability configuration.",
+      "docsUrl": "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "apiToken",
+          "label": "Better Stack API token",
+          "env": "BETTER_STACK_API_TOKEN",
+          "portable": true,
+          "secret": true,
+          "helpUrl": "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/"
+        }
+      ],
+      "http": {
+        "baseUrl": "https://uptime.betterstack.com",
+        "allowHosts": [
+          "telemetry.betterstack.com"
+        ],
+        "auth": {
+          "type": "bearer",
+          "field": "apiToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/api/v2/monitors"
+      },
+      "signIn": "manual"
+    },
+    "posthog": {
+      "label": "PostHog",
+      "description": "Projects, insights, dashboards, feature flags, annotations, and account resources.",
+      "docsUrl": "https://posthog.com/docs/api",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "personalApiKey",
+          "label": "PostHog personal API key",
+          "env": "POSTHOG_PERSONAL_API_KEY",
+          "portable": true,
+          "secret": true,
+          "helpUrl": "https://posthog.com/docs/api/personal-api-keys"
+        }
+      ],
+      "http": {
+        "baseUrl": "https://us.posthog.com",
+        "allowHosts": [
+          "eu.posthog.com"
+        ],
+        "auth": {
+          "type": "bearer",
+          "field": "personalApiKey"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/api/organizations/?limit=1"
+      },
+      "signIn": "manual"
+    },
+    "stripe": {
+      "label": "Stripe",
+      "description": "Payments, customers, subscriptions, products, invoices, and account resources.",
+      "docsUrl": "https://docs.stripe.com/api",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "secretKey",
+          "label": "Stripe secret key",
+          "env": "STRIPE_API_KEY",
+          "helpUrl": "https://dashboard.stripe.com/apikeys",
+          "portable": true,
+          "secret": true
+        }
+      ],
+    "cli": {
+      "command": "stripe",
+      "delivery": "proxy"
+    },
+    "installHint": "https://docs.stripe.com/stripe-cli/install",
+      "http": {
+        "baseUrl": "https://api.stripe.com",
+        "auth": {
+          "type": "basic",
+          "usernameField": "secretKey",
+          "password": "empty"
+        },
+        "defaultHeaders": {
+          "content-type": "application/x-www-form-urlencoded"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/balance"
+      },
+      "signIn": "manual"
+    },
+    "apple-connect": {
+      "label": "App Store Connect",
+      "description": "Applications, builds, TestFlight, releases, and App Store metadata.",
+      "docsUrl": "https://developer.apple.com/documentation/appstoreconnectapi",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "issuerId",
+          "label": "App Store Connect issuer ID",
+          "portable": true,
+          "secret": false,
+          "helpUrl": "https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api"
+        },
+        {
+          "id": "keyId",
+          "label": "App Store Connect key ID",
+          "portable": true,
+          "secret": false
+        },
+        {
+          "id": "privateKey",
+          "label": "App Store Connect .p8 private key",
+          "input": "file",
+          "portable": true,
+          "secret": true
+        }
+      ],
+      "http": {
+        "baseUrl": "https://api.appstoreconnect.apple.com",
+        "auth": {
+          "type": "apple-connect-jwt",
+          "issuerField": "issuerId",
+          "keyIdField": "keyId",
+          "privateKeyField": "privateKey"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/apps?limit=1"
+      },
+      "signIn": "manual"
+    },
+    "meta": {
+      "label": "Meta",
+      "description": "Facebook application and Graph API resources used by Clerk social login.",
+      "docsUrl": "https://developers.facebook.com/docs/graph-api/",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "Meta system user access token",
+          "env": "META_ACCESS_TOKEN",
+          "portable": true,
+          "secret": true,
+          "helpUrl": "https://developers.facebook.com/docs/marketing-api/system-users/install-guide"
+        }
+      ],
+      "http": {
+        "baseUrl": "https://graph.facebook.com",
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/me?fields=id,name"
+      },
+      "signIn": "manual"
+    },
+    "npm": {
+      "label": "npm",
+      "description": "Package metadata, access, collaborators, and publishing credentials.",
+      "docsUrl": "https://docs.npmjs.com/",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "accessToken",
+          "label": "npm granular access token",
+          "env": "NODE_AUTH_TOKEN",
+          "portable": true,
+          "secret": true,
+          "helpUrl": "https://docs.npmjs.com/creating-and-viewing-access-tokens"
+        }
+      ],
+      "http": {
+        "baseUrl": "https://registry.npmjs.org",
+        "auth": {
+          "type": "bearer",
+          "field": "accessToken"
+        },
+        "defaultHeaders": {
+          "content-type": "application/json"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/-/whoami"
+      },
+      "signIn": "manual"
+    }
+  }
+}

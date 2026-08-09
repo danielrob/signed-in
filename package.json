@@ -1,0 +1,36 @@
+{
+  "name": "signed-in-repository",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Development workspace for the signed-in credential-safe vendor gateway.",
+  "type": "module",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "build": "pnpm --filter signed-in build",
+    "check": "pnpm typecheck && pnpm test && pnpm pack:check",
+    "dev": "pnpm --filter signed-in start",
+    "dev:daemon": "pnpm --filter signed-in start:daemon",
+    "dev:install": "node ./scripts/install-signed-in.mjs",
+    "pack:check": "node ./scripts/check-package.mjs",
+    "test": "tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "@types/node-forge": "^1.3.11",
+    "node-forge": "1.4.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "signed-in",
+  "version": "0.1.0",
+  "description": "Named, policy-aware vendor access for humans and coding agents without exposed credentials.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Daniel Robinson",
+  "homepage": "https://github.com/danielrob/signed-in#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielrob/signed-in.git",
+    "directory": "packages/signed-in"
+  },
+  "bugs": {
+    "url": "https://github.com/danielrob/signed-in/issues"
+  },
+  "keywords": [
+    "agents",
+    "authentication",
+    "cli",
+    "credentials",
+    "devtools",
+    "mcp",
+    "security"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "signed-in": "./dist/cli.js",
+    "signed-in-daemon": "./dist/daemon-entry.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "skill"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
+    "start": "tsx ./src/cli.ts",
+    "start:daemon": "tsx ./src/daemon-entry.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.2.0",
+    "@napi-rs/keyring": "1.3.0",
+    "node-forge": "1.4.0"
+  },
+  "devDependencies": {
+    "@types/node-forge": "^1.3.11",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "project": {
+    "id": "acme-console",
+    "name": "Acme Console"
+  },
+  "environment": "production",
+  "services": {
+    "aws": "acme-production",
+    "clerk": "acme-production",
+    "github": "work",
+    "netlify": "acme-production"
+  },
+  "providers": {},
+  "policies": [
+    {
+      "id": "acme-console:git-only-deploys",
+      "effect": "deny",
+      "interfaces": ["native"],
+      "providers": ["netlify"],
+      "commandPattern": ["deploy"],
+      "reason": "Production deploys run only through the project's reviewed release workflow."
+    },
+    {
+      "id": "acme-console:confirm-destructive-production",
+      "effect": "confirm",
+      "environments": ["production"],
+      "operationClasses": ["destructive"],
+      "reason": "Production destructive operations require deliberate local confirmation."
+    }
+  ]
+}

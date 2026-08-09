@@ -1,0 +1,4 @@
+interface:
+  display_name: "signed-in"
+  short_description: "Use authenticated vendor access safely"
+  default_prompt: "Use $signed-in to access the required vendor without handling credentials."
