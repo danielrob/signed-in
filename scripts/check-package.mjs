@@ -4,19 +4,23 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { packageManagerCommand } from './package-manager-command.mjs';
+
 const repositoryRoot = path.resolve(import.meta.dirname, '..');
 const packageRoot = path.join(repositoryRoot, 'packages', 'signed-in');
 const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+const npm = packageManagerCommand('npm');
+const pnpm = packageManagerCommand('pnpm');
 const requiredMetadata = ['author', 'bugs', 'description', 'engines', 'homepage', 'license', 'repository'];
 for (const field of requiredMetadata) {
   if (!manifest[field]) throw new Error(`Package metadata is missing '${field}'`);
 }
 
-execFileSync('pnpm', ['--filter', 'signed-in', 'build'], {
+execFileSync(pnpm.executable, [...pnpm.prefixArgs, '--filter', 'signed-in', 'build'], {
   cwd: repositoryRoot,
   stdio: 'inherit',
 });
-const result = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+const result = JSON.parse(execFileSync(npm.executable, [...npm.prefixArgs, 'pack', '--dry-run', '--json', '--ignore-scripts'], {
   cwd: packageRoot,
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'inherit'],

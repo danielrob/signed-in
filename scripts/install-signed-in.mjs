@@ -5,10 +5,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { packageManagerCommand } from './package-manager-command.mjs';
+
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const packageRoot = path.join(repoRoot, 'packages', 'signed-in');
 const packageManifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-const globalPrefix = execFileSync('npm', ['prefix', '--global'], { encoding: 'utf8' }).trim();
+const npm = packageManagerCommand('npm');
+const pnpm = packageManagerCommand('pnpm');
+const globalPrefix = execFileSync(npm.executable, [...npm.prefixArgs, 'prefix', '--global'], { encoding: 'utf8' }).trim();
 const binaryPath = process.platform === 'win32'
   ? path.join(globalPrefix, 'signed-in.cmd')
   : path.join(globalPrefix, 'bin', 'signed-in');
@@ -16,20 +20,20 @@ const daemonBinaryPath = process.platform === 'win32'
   ? path.join(globalPrefix, 'signed-in-daemon.cmd')
   : path.join(globalPrefix, 'bin', 'signed-in-daemon');
 
-execFileSync('pnpm', ['--filter', 'signed-in', 'build'], {
+execFileSync(pnpm.executable, [...pnpm.prefixArgs, '--filter', 'signed-in', 'build'], {
   cwd: repoRoot,
   stdio: 'inherit',
 });
 const stagingDirectory = mkdtempSync(path.join(tmpdir(), 'signed-in-install-'));
 try {
-  const archiveName = execFileSync('npm', ['pack', '--pack-destination', stagingDirectory], {
+  const archiveName = execFileSync(npm.executable, [...npm.prefixArgs, 'pack', '--pack-destination', stagingDirectory], {
     cwd: packageRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
   }).trim().split('\n').at(-1);
   if (!archiveName) throw new Error('npm pack did not return a signed-in archive name');
   if (process.platform === 'win32') stopExistingDaemonIfIdle(binaryPath);
-  execFileSync('npm', ['install', '--global', path.join(stagingDirectory, archiveName)], {
+  execFileSync(npm.executable, [...npm.prefixArgs, 'install', '--global', path.join(stagingDirectory, archiveName)], {
     cwd: repoRoot,
     stdio: 'inherit',
   });
