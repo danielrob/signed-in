@@ -24,8 +24,11 @@ export function resolveSignedInPaths(environment: NodeJS.ProcessEnv = process.en
   const configDir = resolveConfigDir(home, environment);
   const dataDir = resolveDataDir(home, environment);
   const runtimeDir = resolveRuntimeDir(environment);
+  const pipeIdentity = environment.SIGNED_IN_RUNTIME_DIR
+    ? createHash('sha256').update(path.resolve(environment.SIGNED_IN_RUNTIME_DIR)).digest('hex').slice(0, 12)
+    : stableUserId();
   const socketPath = process.platform === 'win32'
-    ? `\\\\.\\pipe\\signed-in-${stableUserId()}`
+    ? `\\\\.\\pipe\\signed-in-${pipeIdentity}`
     : path.join(runtimeDir, 'daemon.sock');
 
   return {

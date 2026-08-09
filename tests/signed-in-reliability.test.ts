@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import net, { type Server } from 'node:net';
@@ -245,7 +246,9 @@ function testPaths(root: string): SignedInPaths {
     daemonLogFile: path.join(root, 'data', 'daemon.log'),
     dataDir: path.join(root, 'data'),
     runtimeDir: path.join(root, 'run'),
-    socketPath: path.join(root, 'run', 'daemon.sock'),
+    socketPath: process.platform === 'win32'
+      ? `\\\\.\\pipe\\signed-in-test-${createHash('sha256').update(root).digest('hex').slice(0, 12)}`
+      : path.join(root, 'run', 'daemon.sock'),
     stateFile: path.join(root, 'config', 'state.json'),
     vaultDir: path.join(root, 'data', 'vault'),
   };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { generateKeyPairSync, X509Certificate } from 'node:crypto';
+import { createHash, generateKeyPairSync, X509Certificate } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -1631,7 +1631,9 @@ function testPaths(root: string): SignedInPaths {
     daemonLogFile: path.join(root, 'data', 'daemon.log'),
     dataDir: path.join(root, 'data'),
     runtimeDir: path.join(root, 'run'),
-    socketPath: path.join(root, 'run', 'daemon.sock'),
+    socketPath: process.platform === 'win32'
+      ? `\\\\.\\pipe\\signed-in-test-${createHash('sha256').update(root).digest('hex').slice(0, 12)}`
+      : path.join(root, 'run', 'daemon.sock'),
     stateFile: path.join(root, 'config', 'state.json'),
     vaultDir: path.join(root, 'data', 'vault'),
   };
