@@ -34,4 +34,23 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test CLI installation
+        run: pnpm exec tsx --test tests/signed-in-cli-install.test.ts
+        timeout-minutes: 5
+      - name: Test CLI experience
+        run: pnpm exec tsx --test tests/signed-in-cli-ux.test.ts
+        timeout-minutes: 5
+      - name: Test daemon reliability
+        run: pnpm exec tsx --test tests/signed-in-reliability.test.ts
+        timeout-minutes: 5
+      - name: Test skill installation
+        run: pnpm exec tsx --test tests/signed-in-skill-install.test.ts
+        timeout-minutes: 5
+      - name: Test gateway and policy
+        run: pnpm exec tsx --test tests/signed-in.test.ts
+        timeout-minutes: 5
+      - name: Verify package
+        run: pnpm pack:check
+        timeout-minutes: 5
