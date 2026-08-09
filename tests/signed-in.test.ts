@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, X509Certificate } from 'node:crypto';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -1061,9 +1061,15 @@ test('service HTTP ping proves authority without returning the provider response
 
 test('service native ping suppresses provider output while preserving its exit proof', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'signed-in-native-ping-'));
-  const executable = path.join(root, 'demo-provider');
-  writeFileSync(executable, '#!/bin/sh\nprintf "provider-private-output"\ntest "$1" = "whoami" && test "$DEMO_TOKEN" = "ping-secret"\n');
-  chmodSync(executable, 0o755);
+  const executable = path.join(root, process.platform === 'win32' ? 'demo-provider.exe' : 'demo-provider');
+  const providerScript = path.join(root, 'demo-provider.cjs');
+  if (process.platform === 'win32') {
+    copyFileSync(process.execPath, executable);
+    writeFileSync(providerScript, 'process.stdout.write("provider-private-output");\nprocess.exit(process.argv[2] === "whoami" && process.env.DEMO_TOKEN === "ping-secret" ? 0 : 1);\n');
+  } else {
+    writeFileSync(executable, '#!/bin/sh\nprintf "provider-private-output"\ntest "$1" = "whoami" && test "$DEMO_TOKEN" = "ping-secret"\n');
+    chmodSync(executable, 0o755);
+  }
   const paths = testPaths(root);
   mkdirSync(paths.configDir, { recursive: true });
   mkdirSync(paths.dataDir, { recursive: true });
@@ -1073,7 +1079,11 @@ test('service native ping suppresses provider output while preserving its exit p
     providers: {
       demo: {
         ...baseConfig.providers.demo!,
-        cli: { command: executable, delivery: 'environment' },
+        cli: {
+          command: executable,
+          delivery: 'environment',
+          ...(process.platform === 'win32' ? { prefixArgs: [providerScript] } : {}),
+        },
         ping: { args: ['whoami'], interface: 'native' },
       },
     },
