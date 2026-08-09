@@ -424,9 +424,15 @@ function send(socket: Socket, event: IpcEvent): void {
   if (!socket.destroyed) socket.write(`${JSON.stringify(event)}\n`);
 }
 
-// Removes only a proven stale Unix socket and refuses to unlink arbitrary filesystem entries.
+// Rejects an active daemon on every platform and removes only a proven stale Unix socket.
 async function removeStaleSocket(socketPath: string): Promise<void> {
-  if (process.platform === 'win32' || !existsSync(socketPath)) return;
+  if (process.platform === 'win32') {
+    if (await socketResponds(socketPath)) {
+      throw new SignedInError('DAEMON_ALREADY_RUNNING', 'signed-in daemon is already running');
+    }
+    return;
+  }
+  if (!existsSync(socketPath)) return;
   if (!lstatSync(socketPath).isSocket()) throw new Error(`Refusing to replace non-socket path: ${socketPath}`);
   const active = await socketResponds(socketPath);
   if (active) throw new SignedInError('DAEMON_ALREADY_RUNNING', 'signed-in daemon is already running');
