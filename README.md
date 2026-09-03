@@ -28,6 +28,7 @@ I got tired of managing multiple vendor accounts across multiple projects and mu
 applications. Codex, Claude Code, provider CLIs, browser sessions, and project tools all accumulated
 their own connection state, often tied to whichever account happened to be active at the time. Once
 you have work and personal accounts—or development and production authority—that becomes chaos.
+Multiply that across five machines and it becomes complete chaos.
 
 I wanted named, purposeful connection management:
 
@@ -170,13 +171,40 @@ signed-in project trust --config ./signed-in.config.json --root "$PWD"
 ```
 
 Trust resolves explicit aliases to immutable connection IDs, pins provider binaries, and seals the
-reviewed snapshot. Later repository edits do not silently change runtime authority. See the
+reviewed snapshot. If a named connection is missing on this machine, the same flow walks you through
+signing in and then seals it. Projects can also assert a provider identity, bind a provider-owned
+target such as a Convex deployment, and declare safe read checks for the capabilities agents actually
+need:
+
+```json
+{
+  "schemaVersion": 2,
+  "project": { "id": "acme-console", "name": "Acme Console" },
+  "services": {
+    "aws": {
+      "alias": "acme-production",
+      "expectedIdentity": "123456789012",
+      "required": true
+    },
+    "convex": {
+      "alias": "acme",
+      "target": "prod:helpful-otter-123",
+      "required": true
+    }
+  },
+  "providers": {}
+}
+```
+
+`signed-in ping` stays the single test command: it proves a standalone connection normally and
+automatically proves the complete project contract inside a trusted project. Later repository edits
+do not silently change runtime authority. See the
 [generic project-policy example](./examples/project-policy/signed-in.config.json).
 
 ## Built-in services
 
 AWS, Google Cloud, Convex, Clerk, Netlify, Polar, Cloudflare, GitHub, Resend, OpenAI, Sentry, Better
-Stack, PostHog, Stripe, App Store Connect, Meta, and npm are included. Their authentication and
+Stack, PostHog, Shopify, Stripe, App Store Connect, Meta, and npm are included. Their authentication and
 delivery modes differ; the [provider matrix](./docs/providers.md) documents the exact adapter.
 
 ## Security in one paragraph

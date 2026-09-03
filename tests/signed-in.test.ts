@@ -43,7 +43,7 @@ import {
 } from '../packages/signed-in/src/secrets.js';
 import { SignedInError, SignedInService } from '../packages/signed-in/src/service.js';
 import type { SignedInPaths } from '../packages/signed-in/src/paths.js';
-import type { SignedInProjectConfig, PairingPayload } from '../packages/signed-in/src/types.js';
+import type { MachineConnections, SignedInProjectConfig, PairingPayload } from '../packages/signed-in/src/types.js';
 
 const baseConfig: SignedInProjectConfig = {
   environment: 'production',
@@ -81,6 +81,10 @@ test('CLI help and version stay discoverable without starting the daemon', () =>
   const pingHelp = runSignedInCli(['ping', '--help'], stateRoot);
   assert.equal(pingHelp.status, 0);
   assert.match(pingHelp.stdout, /Prove that stored service authority[\s\S]*signed-in ping \[service\[@alias\]\]/u);
+
+  const verifyHelp = runSignedInCli(['verify', '--help'], stateRoot);
+  assert.equal(verifyHelp.status, 0);
+  assert.match(verifyHelp.stdout, /Compatibility alias for signed-in ping[\s\S]*signed-in verify \[service\]/u);
 
   const agentHelp = runSignedInCli(['help', 'agent'], stateRoot);
   assert.equal(agentHelp.status, 0);
@@ -208,6 +212,10 @@ test('authentication failures stay prompt-free for automation while retaining th
   assert.equal(ping.status, 75);
   assert.match(ping.stderr, /github is not signed in[\s\S]*signed-in login github/u);
   assert.doesNotMatch(ping.stderr, /Sign in to GitHub now/u);
+  const compatibility = runSignedInCli(['verify', 'github'], stateRoot);
+  assert.equal(compatibility.status, 75);
+  assert.match(compatibility.stderr, /github is not signed in[\s\S]*signed-in login github/u);
+  assert.doesNotMatch(compatibility.stderr, /trusted project context/u);
   runSignedInCli(['daemon', 'stop'], stateRoot);
 });
 
@@ -336,7 +344,7 @@ test('account grammar fails before authentication and names its reserved words',
 });
 
 test('built-in catalog separates interactive sign-in from manual runtime CLIs', () => {
-  assert.equal(Object.keys(builtInServices).length, 17);
+  assert.equal(Object.keys(builtInServices).length, 18);
   assert.equal(builtInServices.github?.signIn, 'interactive');
   assert.equal(builtInServices.stripe?.signIn, 'manual');
   assert.equal(builtInServices.openai?.signIn, 'manual');
@@ -345,6 +353,20 @@ test('built-in catalog separates interactive sign-in from manual runtime CLIs', 
   assert.deepEqual(builtInServices.convex?.session?.remoteLoginArgs, ['login', '--device-name', 'signed-in', '--login-flow', 'poll', '--no-open']);
   assert.deepEqual(builtInServices.aws?.ping, { args: ['sts', 'get-caller-identity'], interface: 'native' });
   assert.deepEqual(builtInServices.clerk?.credentials?.[0]?.prefixes, ['sk_test_', 'sk_live_']);
+  assert.deepEqual(builtInServices.shopify?.cli, {
+    clearEnv: ['SHOPIFY_FLAG_*'],
+    command: 'shopify',
+    delivery: 'session',
+  });
+  assert.equal(builtInServices.shopify?.existingLogin, undefined);
+  assert.deepEqual(builtInServices.shopify?.session?.loginArgs, ['auth', 'login']);
+  assert.deepEqual(builtInServices.shopify?.ping, { args: ['organization', 'list', '--json'], interface: 'native' });
+  assert.deepEqual(builtInServices.shopify?.target, {
+    env: 'SHOPIFY_FLAG_STORE',
+    label: 'store',
+    pattern: '^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$',
+  });
+  assert.equal(builtInServices.shopify?.http, undefined);
   assert.deepEqual(builtInServices.github?.session?.loginArgs.slice(-4), ['--scopes', 'workflow', '--insecure-storage', '--skip-ssh-key']);
   for (const service of Object.values(builtInServices)) {
     assert.ok(service.ping, `${service.label} needs an authentication probe`);
@@ -464,6 +486,41 @@ test('proxy-delivered CLIs cannot inherit adapter-cleared local profiles', { ski
       cwd: root,
       provider,
       providerId: 'demo',
+    });
+    assert.equal(result.exitCode, 0);
+  } finally {
+    if (previousProfile === undefined) delete process.env.SIGNED_IN_TEST_PROFILE;
+    else process.env.SIGNED_IN_TEST_PROFILE = previousProfile;
+  }
+});
+
+test('session-delivered CLIs cannot inherit adapter-cleared authority flags', { skip: process.platform === 'win32' }, async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-session-profile-'));
+  const executable = path.join(root, 'demo-provider');
+  writeFileSync(executable, '#!/bin/sh\ntest -z "$SIGNED_IN_TEST_PROFILE"\n');
+  chmodSync(executable, 0o755);
+  const provider = {
+    ...baseConfig.providers.demo!,
+    cli: {
+      clearEnv: ['SIGNED_IN_TEST_*'],
+      command: executable,
+      delivery: 'session' as const,
+      trustedExecutable: executable,
+    },
+    session: { loginArgs: ['login'], retain: true },
+  };
+  const previousProfile = process.env.SIGNED_IN_TEST_PROFILE;
+  process.env.SIGNED_IN_TEST_PROFILE = 'ambient-authority';
+  try {
+    const result = await runProviderCommand({
+      args: [],
+      callbacks: { onStderr: () => undefined, onStdout: () => undefined },
+      config: { ...baseConfig, providers: { demo: provider } },
+      credentials: { fields: { token: 'stored-secret' }, updatedAt: new Date().toISOString() },
+      cwd: root,
+      provider,
+      providerId: 'demo',
+      session: { files: [], updatedAt: new Date().toISOString() },
     });
     assert.equal(result.exitCode, 0);
   } finally {
@@ -648,6 +705,50 @@ test('config rejects arbitrary interpreter commands', () => {
   }), /stay inside the command sandbox/u);
 });
 
+test('project contracts reject unsafe checks and targets unsupported by an adapter', () => {
+  assert.throws(() => validateProjectConfig({
+    ...baseConfig,
+    services: { demo: { checks: [{ id: 'write', method: 'POST', path: '/records' }] } },
+  }), /method must be GET or HEAD/u);
+  assert.throws(() => validateProjectConfig({
+    ...baseConfig,
+    services: { demo: { checks: [{ id: 'escape', path: 'https:\/\/other.example.com\/me' }] } },
+  }), /relative HTTP path/u);
+
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-project-target-validation-'));
+  const paths = testPaths(root);
+  mkdirSync(paths.configDir, { recursive: true });
+  mkdirSync(paths.dataDir, { recursive: true });
+  const service = new SignedInService(new MemorySecretStore(), paths);
+  assert.throws(() => service.trustProject({
+    approved: true,
+    config: { ...baseConfig, services: { demo: { target: 'prod:example-123' } } },
+    configPath: path.join(root, 'signed-in.config.json'),
+    roots: [root],
+  }), /does not define a project target/u);
+});
+
+test('project trust guides a missing named custom connection and seals it after sign-in', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-project-pending-'));
+  const paths = testPaths(root);
+  mkdirSync(paths.configDir, { recursive: true });
+  mkdirSync(paths.dataDir, { recursive: true });
+  const service = new SignedInService(new MemorySecretStore(), paths);
+  const config: SignedInProjectConfig = {
+    ...baseConfig,
+    services: { demo: { alias: 'acme-production', required: true } },
+  };
+  const pending = service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] });
+  assert.deepEqual(pending.missing, [{ alias: 'acme-production', service: 'demo' }]);
+  assert.deepEqual(service.describeProject('test-project').pendingConnections, ['demo']);
+
+  service.putCredentials({ account: 'acme-production', fields: { token: 'pending-secret' }, projectId: 'test-project', providerId: 'demo' });
+  const sealed = service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] });
+  assert.deepEqual(sealed.missing, []);
+  assert.ok(service.describeProject('test-project').connections?.demo);
+  assert.equal(service.describeProject('test-project').pendingConnections, undefined);
+});
+
 test('policy denies credential minting and confirms destructive operations', () => {
   const mint = evaluatePolicy(baseConfig, {
     args: ['iam', 'create-access-key'],
@@ -673,6 +774,49 @@ test('policy denies credential minting and confirms destructive operations', () 
     providerId: 'demo',
   });
   assert.equal(hyphenatedDeletion.effect, 'confirm');
+});
+
+test('Shopify scope grants require a terminal confirmation that project policy cannot weaken', () => {
+  const shopifyConfig: SignedInProjectConfig = {
+    ...baseConfig,
+    policies: [{ effect: 'allow', id: 'project:allow-shopify', providers: ['shopify'], reason: 'Project allows Shopify commands.' }],
+    providers: { shopify: builtInServices.shopify! },
+    services: { shopify: true },
+  };
+  const grant = evaluatePolicy(shopifyConfig, {
+    args: ['store', 'auth', '--store', 'example.myshopify.com', '--scopes=read_products,write_products'],
+    interface: 'native',
+    providerId: 'shopify',
+  });
+  assert.equal(grant.classification, 'mutation');
+  assert.equal(grant.effect, 'confirm');
+  assert.deepEqual(grant.matchedRules, ['signed-in:provider-confirmation']);
+
+  const deniedGrant = evaluatePolicy({
+    ...shopifyConfig,
+    policies: [{ effect: 'deny', id: 'project:deny-shopify', providers: ['shopify'], reason: 'Project denies Shopify commands.' }],
+  }, {
+    args: ['store', 'auth', '--store', 'example.myshopify.com', '--scopes', 'read_products'],
+    interface: 'native',
+    providerId: 'shopify',
+  });
+  assert.equal(deniedGrant.effect, 'deny');
+  assert.deepEqual(deniedGrant.matchedRules, ['project:deny-shopify']);
+
+  const authList = evaluatePolicy(shopifyConfig, {
+    args: ['store', 'auth', 'list', '--json'],
+    interface: 'native',
+    providerId: 'shopify',
+  });
+  assert.equal(authList.classification, 'read');
+  assert.equal(authList.effect, 'allow');
+
+  const mutation = evaluatePolicy(shopifyConfig, {
+    args: ['store', 'execute', '--allow-mutations', '--query', 'mutation { example }'],
+    interface: 'native',
+    providerId: 'shopify',
+  });
+  assert.equal(mutation.classification, 'mutation');
 });
 
 test('policy denies credential endpoints even for GET requests', () => {
@@ -1021,6 +1165,12 @@ test('service HTTP ping proves authority without returning the provider response
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   const root = mkdtempSync(path.join(tmpdir(), 'signed-in-http-ping-'));
+  const executable = path.join(root, process.platform === 'win32' ? 'demo-provider.exe' : 'demo-provider');
+  if (process.platform === 'win32') copyFileSync(process.execPath, executable);
+  else {
+    writeFileSync(executable, '#!/bin/sh\nexit 0\n');
+    chmodSync(executable, 0o755);
+  }
   const paths = testPaths(root);
   mkdirSync(paths.configDir, { recursive: true });
   mkdirSync(paths.dataDir, { recursive: true });
@@ -1030,8 +1180,10 @@ test('service HTTP ping proves authority without returning the provider response
     providers: {
       demo: {
         ...baseConfig.providers.demo!,
+        cli: { command: executable, delivery: 'environment' },
         http: { ...baseConfig.providers.demo!.http!, baseUrl: `http://127.0.0.1:${address.port}` },
         ping: { interface: 'http', method: 'GET', path: '/me' },
+        target: { env: 'DEMO_DEPLOYMENT', label: 'deployment' },
       },
     },
   };
@@ -1043,6 +1195,7 @@ test('service HTTP ping proves authority without returning the provider response
     assert.equal(result.interface, 'http');
     assert.equal(result.ok, true);
     assert.equal(result.status, 200);
+    assert.deepEqual(result.target, { label: 'deployment', value: null });
     assert.doesNotMatch(JSON.stringify(result), /ping-secret|provider-body/u);
     await assert.rejects(
       service.request({ method: 'GET', path: '/unauthorized', projectId: 'test-project', providerId: 'demo' }),
@@ -1104,6 +1257,107 @@ test('service native ping suppresses provider output while preserving its exit p
       && error.code === 'AUTH_REQUIRED'
       && (error.details as { remedy?: unknown })?.remedy === 'signed-in login demo@primary',
   );
+});
+
+test('project targets reach the provider CLI through its catalog-declared environment only', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-project-target-'));
+  const executable = path.join(root, process.platform === 'win32' ? 'target-provider.exe' : 'target-provider');
+  const providerScript = path.join(root, 'target-provider.cjs');
+  if (process.platform === 'win32') {
+    copyFileSync(process.execPath, executable);
+    writeFileSync(providerScript, 'process.exit(process.env.DEMO_DEPLOYMENT === "prod:example-deployment-123" ? 0 : 1);\n');
+  } else {
+    writeFileSync(executable, '#!/bin/sh\ntest "$DEMO_DEPLOYMENT" = "prod:example-deployment-123"\n');
+    chmodSync(executable, 0o755);
+  }
+  const paths = testPaths(root);
+  mkdirSync(paths.configDir, { recursive: true });
+  mkdirSync(paths.dataDir, { recursive: true });
+  const service = new SignedInService(new MemorySecretStore(), paths);
+  const config: SignedInProjectConfig = {
+    ...baseConfig,
+    providers: {
+      demo: {
+        ...baseConfig.providers.demo!,
+        cli: {
+          command: executable,
+          delivery: 'environment',
+          ...(process.platform === 'win32' ? { prefixArgs: [providerScript] } : {}),
+        },
+        ping: { args: ['whoami'], interface: 'native' },
+        target: { env: 'DEMO_DEPLOYMENT', label: 'deployment', pattern: '^prod:[a-z0-9-]+$' },
+      },
+    },
+    services: { demo: { target: 'prod:example-deployment-123' } },
+  };
+  service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] });
+  service.putCredentials({ fields: { token: 'target-secret' }, projectId: 'test-project', providerId: 'demo' });
+  const result = await service.pingService({ cwd: root, projectId: 'test-project', providerId: 'demo' });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.target, { label: 'deployment', value: 'prod:example-deployment-123' });
+  const verification = await service.verifyProject({ cwd: root, projectId: 'test-project', providerId: 'demo' });
+  assert.deepEqual(verification.services[0]?.target, { label: 'deployment', value: 'prod:example-deployment-123' });
+});
+
+test('project verification enforces identity and reports insufficient capability without returning bodies', async () => {
+  const server = http.createServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    response.statusCode = request.url === '/forbidden' ? 403 : 200;
+    response.end(JSON.stringify({ private: 'verification-body' }));
+  });
+  await listen(server);
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-project-verify-'));
+  const paths = testPaths(root);
+  mkdirSync(paths.configDir, { recursive: true });
+  mkdirSync(paths.dataDir, { recursive: true });
+  const store = new MemorySecretStore();
+  const service = new SignedInService(store, paths);
+  const config: SignedInProjectConfig = {
+    ...baseConfig,
+    providers: {
+      demo: {
+        ...baseConfig.providers.demo!,
+        http: { ...baseConfig.providers.demo!.http!, baseUrl: `http://127.0.0.1:${address.port}` },
+        ping: { interface: 'http', path: '/me' },
+      },
+    },
+    services: {
+      demo: {
+        alias: 'acme-production',
+        checks: [
+          { id: 'read-data', label: 'Read data', path: '/data' },
+          { id: 'read-issues', label: 'Read issues', path: '/forbidden' },
+        ],
+        expectedIdentity: 'acme-production-tenant',
+      },
+    },
+  };
+  try {
+    const pending = service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] });
+    assert.equal(pending.missing.length, 1);
+    service.putCredentials({ account: 'acme-production', fields: { token: 'verify-secret' }, projectId: 'test-project', providerId: 'demo' });
+    assert.throws(
+      () => service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] }),
+      (error: unknown) => error instanceof SignedInError && error.code === 'AUTH_REQUIRED' && /no verified identity/u.test(error.message),
+    );
+    const accounts = store.get<MachineConnections>(machineAccountsStoreKey())!;
+    const connection = Object.values(accounts.services.demo!.connections)[0]!;
+    connection.identity = 'acme-production · acme-production-tenant · provider-principal';
+    store.set(machineAccountsStoreKey(), accounts);
+    service.trustProject({ approved: true, config, configPath: path.join(root, 'signed-in.config.json'), roots: [root] });
+    const result = await service.verifyProject({ cwd: root, projectId: 'test-project' });
+    assert.equal(result.ok, false);
+    assert.equal(result.services[0]?.identity, 'acme-production · acme-production-tenant · provider-principal');
+    assert.deepEqual(result.services[0]?.checks.map((check) => [check.id, check.status, check.ok]), [
+      ['read-data', 200, true],
+      ['read-issues', 403, false],
+    ]);
+    assert.doesNotMatch(JSON.stringify(result), /verify-secret|verification-body/u);
+  } finally {
+    await close(server);
+  }
 });
 
 test('HTTP gateway aborts an in-flight authenticated request when its client disconnects', async () => {

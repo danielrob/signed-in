@@ -38,6 +38,9 @@ service
 
 project (optional)
   ├── service → alias → sealed connection ID
+  ├── expected provider identity
+  ├── provider-owned target
+  ├── read capability checks
   └── narrowing policy
 ```
 
@@ -59,9 +62,12 @@ later reuses the same alias; re-trusting is the deliberate rebind. Bindings decl
 continue following the machine default.
 
 Projects never own or duplicate credentials. They select existing machine connections and add policy
-that can narrow the built-in authority. Trusting a project validates its source config, resolves and
-hashes relevant provider executables, then seals the snapshot in the vault. Runtime commands do not
-trust later repository edits.
+that can narrow the built-in authority. A connection answers “which authenticated authority?” while a
+target answers “which resource inside that authority?”; this keeps one Convex account login reusable
+across deployments without confusing it with genuinely distinct Clerk or AWS credentials. Trusting a
+project validates its source config, resolves and hashes relevant provider executables, then seals the
+snapshot in the vault. Missing explicit connections remain pending until the human signs in and the
+project is re-sealed. Runtime commands do not trust later repository edits.
 
 ## Components
 
@@ -137,7 +143,7 @@ Proxy delivery normally creates a loopback HTTPS interception proxy and a rotati
 CA. Each child trusts only the public CA certificate for its command lifetime. CLIs with a declared
 Unix HTTP transport instead receive an owner-private socket path in their disposable home; GitHub CLI
 uses this path because recent Go builds do not consistently honor command-scoped custom CAs on macOS.
-Both transports apply the same origin policy, inject Bearer, header, Basic, App Store Connect JWT, or
+Both transports apply the same fixed origin policy, inject Bearer, header, Basic, App Store Connect JWT, or
 AWS SigV4 authentication inside the broker, and block known credential endpoints.
 
 ### Session adapters

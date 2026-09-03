@@ -7,6 +7,8 @@ All notable changes will be documented in this file. The project follows
 
 ### Added
 
+- Shopify support through an installable, isolated Shopify CLI session, explicit per-store scope
+  confirmation, and project-bound store targets.
 - Standalone signed-in repository, package metadata, contribution and security policies.
 - Cross-platform continuous integration and npm trusted-publishing workflow.
 - Release-readiness and publish-artifact verification.

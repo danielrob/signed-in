@@ -26,6 +26,10 @@ test('CLI installers resolve to trusted platform-aware argv', () => {
   assert.ok(manualSentry);
   assert.deepEqual(manualSentry.args, ['install', '--global', '@sentry/cli']);
 
+  const shopify = resolveCliInstallPlan('shopify', { available: (command) => command === 'npm', platform: 'darwin' });
+  assert.ok(shopify);
+  assert.deepEqual(shopify.args, ['install', '--global', '@shopify/cli@latest']);
+
   const knownButAmbiguous = resolveCliInstallPlan('polar', { available: () => true, platform: 'darwin' });
   assert.equal(knownButAmbiguous, undefined);
 
@@ -43,7 +47,7 @@ test('every built-in CLI service has a macOS installer except Polar’s privileg
   const installable = cliServices.filter((serviceId) =>
     Boolean(resolveCliInstallPlan(serviceId, { available: () => true, platform: 'darwin' })));
   const guideOnly = cliServices.filter((serviceId) => !installable.includes(serviceId));
-  assert.deepEqual(installable, ['aws', 'cloudflare', 'convex', 'gcp', 'github', 'netlify', 'openai', 'sentry', 'stripe']);
+  assert.deepEqual(installable, ['aws', 'cloudflare', 'convex', 'gcp', 'github', 'netlify', 'openai', 'sentry', 'shopify', 'stripe']);
   assert.deepEqual(guideOnly, ['polar']);
 });
 

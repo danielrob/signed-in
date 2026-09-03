@@ -113,7 +113,7 @@ export async function adoptExistingProviderLogin(options: {
   if (paths.length > 0 && bundle?.files.length === 0) {
     throw new ProviderAuthenticationError(`No ${existing.source} login files were found`);
   }
-  const sandbox = bundle ? createSessionSandbox(bundle, options.provider.session) : undefined;
+  const sandbox = bundle ? createProviderSessionSandbox(options.provider, bundle) : undefined;
   const env = sandbox?.env ?? sanitizeEnvironment(process.env);
   try {
     await capturePrivateCommand(options.provider.cli, existing.detectArgs, options.cwd, env, undefined, 30_000);
@@ -156,6 +156,16 @@ function ambientSessionContext(env: NodeJS.ProcessEnv): SessionSandbox {
 // Starts an adoption from no prior authority so optional fields cannot leak across replaced accounts.
 function emptyRunnerCredentialRecord(): CredentialRecord {
   return { fields: {}, updatedAt: new Date().toISOString() };
+}
+
+// Applies adapter-specific environment clearing before any retained provider session is materialized.
+function createProviderSessionSandbox(provider: ProviderConfig, bundle?: SessionBundle): SessionSandbox {
+  if (!provider.cli) throw new Error('Provider session sandbox needs a trusted CLI');
+  return createSessionSandbox(
+    bundle,
+    provider.session,
+    sanitizeEnvironment(process.env, provider.cli.clearEnv),
+  );
 }
 
 // Reduces catalog-approved identity output to one bounded display value, optionally through a declared capture group.
@@ -212,7 +222,7 @@ export async function runProviderLogin(options: {
   session?: SessionBundle;
 }): Promise<CommandResult> {
   if (!options.provider.cli || !options.provider.session) throw new Error('Provider does not define a native login flow');
-  const sandbox = createSessionSandbox(options.session, options.provider.session);
+  const sandbox = createProviderSessionSandbox(options.provider, options.session);
   try {
     const args = options.remote && options.provider.session.remoteLoginArgs
       ? options.provider.session.remoteLoginArgs
@@ -251,6 +261,7 @@ export async function runProviderLogin(options: {
 export async function runProviderCommand(options: {
   args: string[];
   callbacks: CommandCallbacks;
+  commandEnvironment?: Record<string, string>;
   config: SignedInProjectConfig;
   credentials: CredentialRecord;
   cwd: string;
@@ -275,6 +286,7 @@ export async function runProviderCommand(options: {
   }
   const env = sanitizeEnvironment(process.env, options.provider.cli.clearEnv);
   if (delivery === 'environment') injectCredentialEnvironment(env, options.provider, resolved.credentials.fields);
+  applyCommandEnvironment(env, options.commandEnvironment);
   const exitCode = await executeChild(
     options.provider.cli,
     options.args,
@@ -294,7 +306,7 @@ async function resolveWithFreshSandbox(options: {
   session?: SessionBundle;
 }): Promise<{ credentials: CredentialRecord; session?: SessionBundle }> {
   if (!options.provider.session || !options.session) return { credentials: options.credentials, session: options.session };
-  const sandbox = createSessionSandbox(options.session, options.provider.session);
+  const sandbox = createProviderSessionSandbox(options.provider, options.session);
   try {
     const resolved = await resolveSessionCredentials({
       credentials: options.credentials,
@@ -315,6 +327,7 @@ async function resolveWithFreshSandbox(options: {
 async function runProxyDeliveredCommand(options: {
   args: string[];
   callbacks: CommandCallbacks;
+  commandEnvironment?: Record<string, string>;
   config: SignedInProjectConfig;
   credentials: CredentialRecord;
   cwd: string;
@@ -382,6 +395,7 @@ async function runProxyDeliveredCommand(options: {
       randomBytes(18).toString('base64url'),
     ));
     applyAwsSafetyEnvironment(sandbox.env, options.provider);
+    applyCommandEnvironment(sandbox.env, options.commandEnvironment);
     const exitCode = await executeChild(
       options.provider.cli,
       options.args,
@@ -427,6 +441,7 @@ function clearProxyEnvironment(env: NodeJS.ProcessEnv): void {
 async function runSessionDeliveredCommand(options: {
   args: string[];
   callbacks: CommandCallbacks;
+  commandEnvironment?: Record<string, string>;
   credentials: CredentialRecord;
   cwd: string;
   provider: ProviderConfig;
@@ -436,8 +451,9 @@ async function runSessionDeliveredCommand(options: {
   if (!options.provider.cli || !options.provider.session || !options.session) {
     throw new Error('Provider session is not available');
   }
-  const sandbox = createSessionSandbox(options.session, options.provider.session);
+  const sandbox = createProviderSessionSandbox(options.provider, options.session);
   try {
+    applyCommandEnvironment(sandbox.env, options.commandEnvironment);
     const exitCode = await executeChild(
       options.provider.cli,
       options.args,
@@ -450,6 +466,11 @@ async function runSessionDeliveredCommand(options: {
   } finally {
     sandbox.cleanup();
   }
+}
+
+// Applies only environment values derived from catalog-declared project targets after ambient values are sanitized.
+function applyCommandEnvironment(env: NodeJS.ProcessEnv, commandEnvironment?: Record<string, string>): void {
+  if (commandEnvironment) Object.assign(env, commandEnvironment);
 }
 
 // Executes refresh-token resolvers privately and maps only declared output fields into daemon memory.

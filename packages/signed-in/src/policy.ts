@@ -24,22 +24,34 @@ const hardDenyPatterns: string[][] = [
   ['tokens', 'create'],
 ];
 
-// Applies hard credential controls first, then the most restrictive matching trusted project rule.
+// Applies hard credential controls first, then preserves provider confirmations alongside the most restrictive project rule.
 export function evaluatePolicy(config: SignedInProjectConfig, operation: Operation): PolicyDecision {
   const provider = operation.providerId ? config.providers[operation.providerId] : undefined;
   const classification = classifyOperation(operation, provider);
   const hardDenial = evaluateHardDenial(operation, classification, provider);
   if (hardDenial) return hardDenial;
 
+  const providerConfirmation = operation.interface === 'native'
+    && (provider?.policy?.confirmCliPatterns ?? []).some((pattern) => containsSequence(operation.args ?? [], pattern));
   const matchingRules = (config.policies ?? []).filter((rule) => matchesRule(rule, operation, classification));
-  if (matchingRules.length > 0) {
-    const winningEffect = mostRestrictive(matchingRules.map((rule) => rule.effect));
+  if (matchingRules.length > 0 || providerConfirmation) {
+    const winningEffect = mostRestrictive([
+      ...matchingRules.map((rule) => rule.effect),
+      ...(providerConfirmation ? ['confirm' as const] : []),
+    ]);
     const winners = matchingRules.filter((rule) => rule.effect === winningEffect);
+    const providerConfirmationWins = providerConfirmation && winningEffect === 'confirm';
     return {
       classification,
       effect: winningEffect,
-      matchedRules: winners.map((rule) => rule.id),
-      reason: winners.map((rule) => rule.reason).join('; '),
+      matchedRules: [
+        ...(providerConfirmationWins ? ['signed-in:provider-confirmation'] : []),
+        ...winners.map((rule) => rule.id),
+      ],
+      reason: [
+        ...(providerConfirmationWins ? ['This provider command changes persistent authorization and requires explicit confirmation.'] : []),
+        ...winners.map((rule) => rule.reason),
+      ].join('; '),
     };
   }
 
@@ -116,6 +128,9 @@ function classifyNativeOperation(args: string[], provider?: ProviderConfig): Ope
   }
   if ((provider?.policy?.destructiveCliPatterns ?? []).some((pattern) => containsSequence(args, pattern))) {
     return 'destructive';
+  }
+  if ((provider?.policy?.confirmCliPatterns ?? []).some((pattern) => containsSequence(args, pattern))) {
+    return 'mutation';
   }
   if ((provider?.policy?.mutatingCliPatterns ?? []).some((pattern) => containsSequence(args, pattern))) {
     return 'mutation';

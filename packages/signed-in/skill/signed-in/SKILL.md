@@ -12,8 +12,12 @@ authentication; never search for, request, print, or copy the underlying credent
 
 1. Run `signed-in help agent` for the current operating contract.
 2. Run `signed-in status [service] --json` to discover configured services, aliases, and remedies.
-3. Run `signed-in ping <service>[@alias] --json` when a safe authentication proof is useful.
-4. Use the default alias unless status shows multiple connections or the task names one explicitly.
+3. Run `signed-in ping [service[@alias]] --json` when an authentication proof is useful. Inside a
+   trusted project, this automatically checks its intended identity, provider target, and declared
+   read capabilities too.
+4. Outside a project, the same command simply tests the selected standalone connection.
+5. Use the project-selected connection inside a trusted project. Otherwise use the default alias
+   unless status shows multiple connections or the task names one explicitly.
 
 ## Perform provider work
 
@@ -33,6 +37,17 @@ signed-in ping polar --json
 
 Do not send `Authorization`, `Cookie`, or API-key headers. Do not call an underlying provider CLI
 directly to evade signed-in routing, alias selection, policy, redaction, or audit behavior.
+
+## Shopify authority
+
+- Shopify's Dev MCP supplies documentation and validation; it does not provide merchant Admin API
+  authentication. Use `signed-in shopify ...` for authenticated store commands.
+- `signed-in login shopify` establishes only the Shopify account session. Per-store Admin authority
+  comes from `signed-in shopify store auth --store <domain> --scopes <minimum-scopes>`.
+- Store authorization changes persistent authority and must be chosen in an interactive terminal.
+  Never automate the Shopify Admin consent page or treat approval in chat as terminal confirmation.
+- After the human grants access, use `store execute` for reads. Let signed-in and Shopify present their
+  own confirmation boundaries for scope changes, protected data, and mutations.
 
 ## Handle stops
 

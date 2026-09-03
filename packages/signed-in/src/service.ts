@@ -69,7 +69,9 @@ import type {
   PairingEnvelope,
   PairingPayload,
   PolicyDecision,
+  ProjectServiceVerificationResult,
   ProjectServiceBinding,
+  ProjectVerificationResult,
   ProviderConfig,
   ProviderStatus,
   ServiceConfig,
@@ -117,11 +119,21 @@ export class SignedInService {
     config: unknown;
     configPath: string;
     roots: string[];
-  }): { binaries: string[]; fingerprint: string; projectId: string; services: string[] } {
+  }): { binaries: string[]; fingerprint: string; missing: Array<{ alias?: string; service: string }>; projectId: string; services: string[] } {
     const config = normalizeProjectConfig(validateProjectConfig(input.config, input.configPath));
     const services = Object.keys(config.services).map((serviceId) => {
       const service = config.providers[serviceId] ?? builtInServices[serviceId];
       if (!service) throw new SignedInError('UNKNOWN_SERVICE', `Unknown service '${serviceId}' in ${input.configPath}`);
+      const binding = projectBinding(config.services[serviceId])!;
+      if (binding.target) {
+        if (!service.target) throw new SignedInError('TARGET_UNSUPPORTED', `${service.label} does not define a project target`);
+        if (service.target.pattern && !new RegExp(service.target.pattern, 'u').test(binding.target)) {
+          throw new SignedInError('INVALID_TARGET', `${service.label} ${service.target.label} '${binding.target}' is invalid`);
+        }
+      }
+      if (binding.checks.length > 0 && !service.http) {
+        throw new SignedInError('CHECKS_UNSUPPORTED', `${service.label} cannot run HTTP capability checks`);
+      }
       return { id: serviceId, service };
     });
     if (!input.approved) throw new SignedInError('APPROVAL_REQUIRED', `Trust reviewed bindings and policy for ${config.project.name}?`);
@@ -133,8 +145,8 @@ export class SignedInService {
     const fingerprint = fingerprintProjectConfig(config);
     const key = trustedProjectStoreKey(config.project.id);
     const trustedAt = new Date().toISOString();
-    const connections = this.#resolveTrustedConnections(config);
-    this.#store.set<TrustedProject>(key, { config, connections, fingerprint, trustedAt });
+    const { connections, pendingConnections } = this.#resolveTrustedConnections(config);
+    this.#store.set<TrustedProject>(key, { config, connections, fingerprint, ...(pendingConnections.length > 0 ? { pendingConnections } : {}), trustedAt });
     const state = this.#machineStateV2();
     state.projects[config.project.id] = {
       configPath: resolve(input.configPath),
@@ -150,7 +162,11 @@ export class SignedInService {
     this.#saveState(state);
     for (const { id, pin } of pins) this.#store.set(binaryPinStoreKey(id), pin);
     this.#auditControl('project.trust', 'credential-control', 'allow', 'Reviewed project bindings and policy sealed.', undefined, config.project.id);
-    return { binaries: pins.map(({ id }) => id), fingerprint, projectId: config.project.id, services: Object.keys(config.services) };
+    const missing = pendingConnections.map((service) => {
+      const account = projectBinding(config.services[service])?.account;
+      return { ...(account ? { alias: account } : {}), service };
+    });
+    return { binaries: pins.map(({ id }) => id), fingerprint, missing, projectId: config.project.id, services: Object.keys(config.services) };
   }
 
   // Returns safe project roots and connection aliases while trusted config remains in the encrypted vault.
@@ -193,6 +209,7 @@ export class SignedInService {
         .sort(([, left], [, right]) => left.alias.localeCompare(right.alias))
         .map(([connectionId]) => this.#providerStatus(serviceId, connectionId, service, binding?.required ?? false));
       const projectConnectionId = project?.connections?.[serviceId];
+      const projectConnectionPending = Boolean(project?.pendingConnections?.includes(serviceId));
       const projectConnectionMissing = Boolean(projectConnectionId && !serviceConnections?.connections[projectConnectionId]);
       const projectAlias = projectConnectionId
         ? serviceConnections?.connections[projectConnectionId]?.alias ?? binding?.account
@@ -203,10 +220,12 @@ export class SignedInService {
         ? accounts.find((account) => account.account === projectAlias)
         : accounts.find((account) => account.default) ?? accounts[0];
       const connectionNeedingAttention = selectedConnection && !selectedConnection.ready ? selectedConnection : undefined;
-      const state = projectConnectionMissing || connectionNeedingAttention
+      const state = projectConnectionMissing || projectConnectionPending || connectionNeedingAttention
         ? 'needs-you'
         : accounts.length > 0 ? 'connected' : 'not-connected';
-      const remedy = projectConnectionMissing
+      const remedy = projectConnectionPending
+        ? `signed-in login ${serviceId}${binding?.account ? `@${binding.account}` : ''}`
+        : projectConnectionMissing
         ? 'signed-in project trust'
         : connectionNeedingAttention?.remedy ?? (accounts.length === 0 ? `signed-in login ${serviceId}` : undefined);
       return {
@@ -217,6 +236,7 @@ export class SignedInService {
         label: service.label,
         ...(projectAlias ? { projectAccount: projectAlias } : {}),
         ...(projectConnectionMissing ? { projectConnectionMissing: true } : {}),
+        ...(projectConnectionPending ? { projectConnectionPending: true } : {}),
         required: binding?.required ?? false,
         ...(remedy ? { remedy } : {}),
         signIn: service.signIn,
@@ -499,6 +519,7 @@ export class SignedInService {
       const result = await runProviderCommand({
         args: input.args,
         callbacks,
+        ...projectCommandEnvironment(service, projectBinding(project?.config.services[input.providerId])),
         config,
         credentials,
         cwd: input.cwd,
@@ -530,6 +551,8 @@ export class SignedInService {
     const project = input.projectId ? this.#trustedProject(input.projectId) : undefined;
     const service = this.#service(input.providerId, project);
     if (!service.ping) throw new SignedInError('PING_UNAVAILABLE', `${service.label} does not define an authentication probe`);
+    const binding = projectBinding(project?.config.services[input.providerId]);
+    const target = service.target ? { label: service.target.label, value: binding?.target ?? null } : undefined;
     const startedAt = Date.now();
     if (service.ping.interface === 'native') {
       const result = await this.runNative({
@@ -551,6 +574,7 @@ export class SignedInService {
         interface: 'native',
         ok: result.exitCode === 0,
         providerId: input.providerId,
+        ...(target ? { target } : {}),
       };
     }
     const result = await this.request({
@@ -567,7 +591,53 @@ export class SignedInService {
       ok: result.response.status >= 200 && result.response.status < 300,
       providerId: input.providerId,
       status: result.response.status,
+      ...(target ? { target } : {}),
     };
+  }
+
+  // Verifies a sealed project's identity, ordinary auth probe, and declared read capabilities without returning provider bodies.
+  async verifyProject(input: {
+    cwd: string;
+    projectId: string;
+    providerId?: string;
+  }, callbacks: Pick<CommandCallbacks, 'onChild'> = {}, signal?: AbortSignal): Promise<ProjectVerificationResult> {
+    const project = this.#trustedProject(input.projectId);
+    const providerIds = input.providerId ? [input.providerId] : Object.keys(project.config.services);
+    if (input.providerId && !project.config.services[input.providerId]) {
+      throw new SignedInError('SERVICE_NOT_IN_PROJECT', `${input.providerId} is not configured for ${project.config.project.name}`);
+    }
+    const services: ProjectServiceVerificationResult[] = [];
+    for (const providerId of providerIds) {
+      const service = this.#service(providerId, project);
+      const binding = projectBinding(project.config.services[providerId])!;
+      const connection = this.#resolveConnection(providerId, undefined, project);
+      const ping = await this.pingService({ cwd: input.cwd, projectId: input.projectId, providerId }, callbacks, signal);
+      const checks = [];
+      for (const check of binding.checks) {
+        const startedAt = Date.now();
+        const method = check.method ?? 'GET';
+        const result = await this.request({ method, path: check.path, projectId: input.projectId, providerId }, signal);
+        checks.push({
+          durationMs: Date.now() - startedAt,
+          id: check.id,
+          label: check.label ?? check.id,
+          method,
+          ok: result.response.status >= 200 && result.response.status < 300,
+          path: check.path,
+          status: result.response.status,
+        });
+      }
+      services.push({
+        account: connection.alias,
+        checks,
+        ...(connection.metadata.identity ? { identity: connection.metadata.identity } : {}),
+        ok: ping.ok && checks.every((check) => check.ok),
+        ping,
+        providerId,
+        ...(ping.target ? { target: ping.target } : {}),
+      });
+    }
+    return { ok: services.every((service) => service.ok), projectId: input.projectId, services };
   }
 
   // Calls one allowlisted service endpoint with daemon-side authentication and project policy when present.
@@ -962,20 +1032,22 @@ export class SignedInService {
   }
 
   // Pins explicit project aliases to immutable connections while true and default continue following the machine default.
-  #resolveTrustedConnections(config: SignedInProjectConfig): Record<string, string> {
-    return Object.fromEntries(Object.entries(config.services).flatMap(([serviceId, value]) => {
+  #resolveTrustedConnections(config: SignedInProjectConfig): { connections: Record<string, string>; pendingConnections: string[] } {
+    const pendingConnections: string[] = [];
+    const connections = Object.fromEntries(Object.entries(config.services).flatMap(([serviceId, value]) => {
       const binding = projectBinding(value);
-      if (!binding?.account || binding.account === 'default') return [];
-      const connection = this.#connectionByAlias(serviceId, binding.account);
+      if (!binding || (!binding.account && !binding.expectedIdentity)) return [];
+      const connection = binding.account
+        ? this.#connectionByAlias(serviceId, binding.account)
+        : this.#connectionByAlias(serviceId, 'default') ?? this.#onlyConnection(serviceId);
       if (!connection) {
-        throw new SignedInError('AUTH_REQUIRED', `${config.project.name} uses ${serviceId}@${binding.account}, which is not signed in here`, {
-          account: binding.account,
-          remedy: `signed-in login ${serviceId}@${binding.account}`,
-          service: serviceId,
-        });
+        pendingConnections.push(serviceId);
+        return [];
       }
+      this.#assertExpectedIdentity(serviceId, connection, binding, config.project.name);
       return [[serviceId, connection.id]];
     }));
+    return { connections, pendingConnections };
   }
 
   // Resolves explicit alias, sealed project target, project alias, then machine default in stated precedence.
@@ -985,11 +1057,19 @@ export class SignedInService {
     if (explicit) {
       const selected = this.#connectionByAlias(serviceId, explicit);
       if (!selected) throw accountMissingError(serviceId, explicit, aliases);
-      return selected;
+      return this.#assertProjectConnection(serviceId, selected, project);
+    }
+    if (project?.pendingConnections?.includes(serviceId)) {
+      const binding = projectBinding(project.config.services[serviceId]);
+      throw new SignedInError('AUTH_REQUIRED', `${project.config.project.name} needs ${serviceId}${binding?.account ? `@${binding.account}` : ''}, which is not signed in here`, {
+        ...(binding?.account ? { account: binding.account } : {}),
+        remedy: `signed-in login ${serviceId}${binding?.account ? `@${binding.account}` : ''}`,
+        service: serviceId,
+      });
     }
     const trustedConnectionId = project?.connections?.[serviceId];
     const trustedMetadata = trustedConnectionId ? serviceConnections?.connections[trustedConnectionId] : undefined;
-    if (trustedConnectionId && trustedMetadata) return { alias: trustedMetadata.alias, id: trustedConnectionId, metadata: trustedMetadata };
+    if (trustedConnectionId && trustedMetadata) return this.#assertProjectConnection(serviceId, { alias: trustedMetadata.alias, id: trustedConnectionId, metadata: trustedMetadata }, project);
     if (trustedConnectionId) {
       throw new SignedInError('PROJECT_CONNECTION_MISSING', `${project!.config.project.name}'s sealed ${serviceId} connection was removed from this machine`, {
         remedy: `signed-in project trust --config ${JSON.stringify(this.#machineStateV2().projects[project!.config.project.id]?.configPath ?? 'signed-in.config.json')}`,
@@ -1006,14 +1086,14 @@ export class SignedInService {
           service: serviceId,
         });
       }
-      return selected;
+      return this.#assertProjectConnection(serviceId, selected, project);
     }
     if (serviceConnections?.default && serviceConnections.connections[serviceConnections.default]) {
       const metadata = serviceConnections.connections[serviceConnections.default]!;
-      return { alias: metadata.alias, id: serviceConnections.default, metadata };
+      return this.#assertProjectConnection(serviceId, { alias: metadata.alias, id: serviceConnections.default, metadata }, project);
     }
     const entries = Object.entries(serviceConnections?.connections ?? {});
-    if (entries.length === 1) return { alias: entries[0]![1].alias, id: entries[0]![0], metadata: entries[0]![1] };
+    if (entries.length === 1) return this.#assertProjectConnection(serviceId, { alias: entries[0]![1].alias, id: entries[0]![0], metadata: entries[0]![1] }, project);
     if (entries.length > 1) {
       throw new SignedInError('ACCOUNT_AMBIGUOUS', `${serviceId} has multiple connections and no default here: ${aliases.join(', ')}`, {
         accounts: aliases,
@@ -1022,6 +1102,40 @@ export class SignedInService {
       });
     }
     throw new SignedInError('AUTH_REQUIRED', `${serviceId} is not signed in`, { remedy: `signed-in login ${serviceId}`, service: serviceId });
+  }
+
+  // Finds the sole connection only when no machine default exists, avoiding arbitrary selection among multiple authorities.
+  #onlyConnection(serviceId: string): ConnectionRef | undefined {
+    const entries = Object.entries(this.#accounts().services[serviceId]?.connections ?? {});
+    return entries.length === 1 ? { alias: entries[0]![1].alias, id: entries[0]![0], metadata: entries[0]![1] } : undefined;
+  }
+
+  // Applies a project's exact identity expectation to every route, including explicit alias overrides.
+  #assertProjectConnection(serviceId: string, connection: ConnectionRef, project?: TrustedProject): ConnectionRef {
+    const binding = projectBinding(project?.config.services[serviceId]);
+    if (binding && project) this.#assertExpectedIdentity(serviceId, connection, binding, project.config.project.name);
+    return connection;
+  }
+
+  // Stops a wrong tenant or cloud account before any provider operation is allowed to run.
+  #assertExpectedIdentity(
+    serviceId: string,
+    connection: ConnectionRef,
+    binding: NonNullable<ReturnType<typeof projectBinding>>,
+    projectName: string,
+  ): void {
+    if (!binding.expectedIdentity) return;
+    if (connection.metadata.identity && identityContainsExpectedValue(connection.metadata.identity, binding.expectedIdentity)) return;
+    const reason = connection.metadata.identity
+      ? `is '${connection.metadata.identity}', not '${binding.expectedIdentity}'`
+      : `has no verified identity; expected '${binding.expectedIdentity}'`;
+    throw new SignedInError('AUTH_REQUIRED', `${projectName} requires ${serviceId} identity '${binding.expectedIdentity}', but ${serviceId}@${connection.alias} ${reason}`, {
+      account: connection.alias,
+      cause: 'identity-mismatch',
+      expectedIdentity: binding.expectedIdentity,
+      remedy: `signed-in login ${serviceId}@${connection.alias}`,
+      service: serviceId,
+    });
   }
 
   // Resolves a logout target without silently choosing among multiple connections.
@@ -1490,12 +1604,38 @@ function validateAccountName(account: string): void {
 }
 
 // Converts project shorthand into one exact alias requirement without leaking storage concerns upward.
-function projectBinding(binding: ProjectServiceBinding | undefined): { account?: string; required: boolean } | undefined {
+function projectBinding(binding: ProjectServiceBinding | undefined): {
+  account?: string;
+  checks: NonNullable<Exclude<ProjectServiceBinding, boolean | string>['checks']>;
+  expectedIdentity?: string;
+  required: boolean;
+  target?: string;
+} | undefined {
   if (binding === undefined) return undefined;
-  if (binding === true) return { required: true };
-  if (typeof binding === 'string') return { account: binding, required: true };
+  if (binding === true) return { checks: [], required: true };
+  if (typeof binding === 'string') return { account: binding, checks: [], required: true };
   const alias = binding.alias ?? binding.account;
-  return { ...(alias ? { account: alias } : {}), required: binding.required === true };
+  return {
+    ...(alias ? { account: alias } : {}),
+    checks: binding.checks ?? [],
+    ...(binding.expectedIdentity ? { expectedIdentity: binding.expectedIdentity } : {}),
+    required: binding.required === true,
+    ...(binding.target ? { target: binding.target } : {}),
+  };
+}
+
+// Converts a sealed project target into the catalog-owned environment variable accepted by the provider CLI.
+function projectCommandEnvironment(
+  service: ServiceConfig,
+  binding: ReturnType<typeof projectBinding>,
+): { commandEnvironment?: Record<string, string> } {
+  if (!binding?.target || !service.target) return {};
+  return { commandEnvironment: { [service.target.env]: binding.target } };
+}
+
+// Recognizes exact provider identities and structured display identities without allowing arbitrary substring matches.
+function identityContainsExpectedValue(identity: string, expected: string): boolean {
+  return identity === expected || identity.split('·').some((part) => part.trim() === expected);
 }
 
 // Drops built-in provider copies from upgraded v1 files and prevents project policy from widening defaults.

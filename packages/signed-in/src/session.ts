@@ -196,14 +196,16 @@ export function materializeBundle(home: string, bundle: SessionBundle): void {
   }
 }
 
-// Removes inherited credentials while keeping normal locale, terminal, network, and executable discovery behavior.
+// Removes inherited credentials and adapter-declared names or prefixes while preserving ordinary process behavior.
 export function sanitizeEnvironment(
   environment: NodeJS.ProcessEnv,
   clearEnv: string[] = [],
 ): NodeJS.ProcessEnv {
-  const cleared = new Set(clearEnv.map((name) => name.toUpperCase()));
+  const cleared = new Set(clearEnv.filter((name) => !name.endsWith('*')).map((name) => name.toUpperCase()));
+  const clearedPrefixes = clearEnv.filter((name) => name.endsWith('*')).map((name) => name.slice(0, -1).toUpperCase());
   return Object.fromEntries(Object.entries(environment).filter(([name, value]) => {
-    if (value === undefined || cleared.has(name.toUpperCase())) return false;
+    const upperName = name.toUpperCase();
+    if (value === undefined || cleared.has(upperName) || clearedPrefixes.some((prefix) => upperName.startsWith(prefix))) return false;
     if (/(?:^|_)(?:API_?KEY|AUTH|CREDENTIALS?|PASSWORD|PRIVATE_?KEY|SECRET|SESSION_?TOKEN|TOKEN)(?:$|_)/iu.test(name)) {
       return false;
     }

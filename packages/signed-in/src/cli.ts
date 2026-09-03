@@ -56,6 +56,7 @@ import type {
   MachineState,
   PairingEnvelope,
   PolicyDecision,
+  ProjectVerificationResult,
   ProjectServiceBinding,
   ProviderStatus,
   ServiceConfig,
@@ -84,7 +85,7 @@ const rawArguments = process.argv.slice(process.argv[2] === '--' ? 3 : 2);
 const aliasNamingHint = 'Prefer <project>-<environment>, for example acme-production.';
 const builtInCommands = new Set([
   '__complete', '__home', 'alias', 'audit', 'completion', 'connections', 'daemon', 'doctor', 'help', 'login', 'logout', 'mcp', 'pair',
-  'ping', 'policy', 'project', 'projects', 'rename', 'request', 'reset', 'setup', 'share-auth', 'skill', 'status', 'trust', 'use',
+  'ping', 'policy', 'project', 'projects', 'rename', 'request', 'reset', 'setup', 'share-auth', 'skill', 'status', 'trust', 'use', 'verify',
 ]);
 interface HelpPage {
   examples?: string[];
@@ -155,9 +156,14 @@ const commandHelp: Record<string, HelpPage> = {
   },
   ping: {
     examples: ['signed-in ping polar', 'signed-in ping github@work', 'signed-in ping --json'],
-    notes: ['With no service, ping checks the selected connection for every configured service. Provider response bodies are discarded inside the daemon.'],
+    notes: ['With no service, ping checks every connected service. Inside a trusted project it automatically enforces that project\'s identities, targets, and capability checks. Provider response bodies are discarded inside the daemon.'],
     summary: 'Prove that stored service authority still performs one safe authenticated read.',
     usage: ['signed-in ping [service[@alias]] [--project <id>] [--json]'],
+  },
+  verify: {
+    notes: ['This spelling is retained so existing commands keep working. New commands should use signed-in ping.'],
+    summary: 'Compatibility alias for signed-in ping.',
+    usage: ['signed-in verify [service] [--project <id>] [--json]'],
   },
   policy: {
     examples: ['signed-in policy explain aws --json -- s3 ls', 'signed-in policy explain polar --http GET /v1/products --json'],
@@ -453,6 +459,7 @@ async function dispatchCli(commandName: string, commandArgs: string[], projectOv
     case 'setup': throw new ActionableCliError('Setup is no longer required; service connections are machine-wide.', 'signed-in login');
     case 'request': await runRequest(commandArgs, projectOverride); return;
     case 'ping': await runPing(commandArgs, projectOverride); return;
+    case 'verify': await runPing(commandArgs, projectOverride); return;
     case 'policy': await runPolicy(commandArgs, projectOverride); return;
     case 'audit': await runAudit(commandArgs); return;
     case 'doctor': await runDoctor(commandArgs, projectOverride); return;
@@ -465,15 +472,15 @@ async function dispatchCli(commandName: string, commandArgs: string[], projectOv
 }
 
 interface CliPingResult extends ServicePingResult {
+  connection: string;
   label: string;
-  target: string;
 }
 
 interface FailedCliPing {
+  connection: string;
   error: ReturnType<typeof renderError>;
   label: string;
   ok: false;
-  target: string;
 }
 
 // Runs one explicit probe or every configured service concurrently without returning provider response bodies.
@@ -482,6 +489,10 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
   if (parsed.positionals.length > 1) throw new Error(`Unexpected ping argument '${parsed.positionals[1]}'`);
   const projectId = resolveProjectId(selectProjectOverride(parsed, projectOverride));
   const explicit = parsed.positionals[0] ? parseServiceTarget(parsed.positionals[0]) : undefined;
+  if (projectId && !explicit?.account) {
+    await runProjectPing(projectId, explicit?.service, parsed.booleans.has('--json'));
+    return;
+  }
   if (explicit) {
     const checked = await pingTarget(explicit, projectId);
     if (parsed.booleans.has('--json')) printJson({ ok: checked.ok, result: checked, schema: 1 });
@@ -503,7 +514,7 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
     } catch (error) {
       if (canOfferSignIn(error)) throw error;
       const config = await serviceConfig(target.service, projectId);
-      return { error: renderError(error), label: config.label, ok: false, target: formatTarget(target) };
+      return { connection: formatTarget(target), error: renderError(error), label: config.label, ok: false };
     }
   }));
   const ok = checked.every((result) => result.ok);
@@ -512,7 +523,7 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
   } else if (!quietMode) {
     printHeading('signed-in ping', `${checked.filter((result) => result.ok).length} of ${checked.length} authenticated`);
     printRows(checked.map((result) => ({
-      detail: 'error' in result ? [result.target, result.error.remedy].filter(Boolean).join(' · ') : result.target,
+      detail: 'error' in result ? [result.connection, result.error.remedy].filter(Boolean).join(' · ') : result.connection,
       label: result.label,
       status: 'error' in result ? result.error.message : pingResultStatus(result),
       tone: result.ok ? 'good' as const : 'bad' as const,
@@ -531,7 +542,7 @@ async function pingTarget(target: ServiceTarget, projectId?: string): Promise<Cl
     ...(projectId ? { projectId } : {}),
     providerId: target.service,
   }) as ServicePingResult;
-  return { ...result, label: config.label, target: `${target.service}@${result.account}` };
+  return { ...result, connection: `${target.service}@${result.account}`, label: config.label };
 }
 
 // Keeps single-service success and failure receipts compact enough to use as a shell health check.
@@ -544,7 +555,47 @@ function printPingResult(result: CliPingResult): void {
 // Describes the exact authenticated surface without exposing its response or implying broader permissions.
 function pingResultStatus(result: ServicePingResult): string {
   const proof = result.interface === 'http' ? `HTTP ${result.status ?? 'failed'}` : `CLI exit ${result.exitCode ?? 1}`;
-  return `${result.ok ? 'authenticated' : 'failed'} · ${proof} · ${result.durationMs} ms`;
+  const authentication = result.target
+    ? result.ok ? 'account authenticated' : 'account authentication failed'
+    : result.ok ? 'authenticated' : 'failed';
+  const target = result.target
+    ? result.target.value ? `${result.target.label} ${result.target.value}` : `no ${result.target.label} selected`
+    : undefined;
+  return [authentication, target, proof, `${result.durationMs} ms`].filter(Boolean).join(' · ');
+}
+
+// Deepens the ordinary ping automatically when a trusted project has identities, targets, or capabilities to prove.
+async function runProjectPing(projectId: string, providerId: string | undefined, json: boolean): Promise<void> {
+  const result = await call('project.verify', {
+    cwd: process.cwd(),
+    projectId,
+    ...(providerId ? { providerId } : {}),
+  }) as ProjectVerificationResult;
+  if (json) {
+    printJson({ ...result, schema: 1 });
+  } else if (!quietMode) {
+    const project = await describeProject(projectId);
+    printHeading('signed-in ping', `${project.config.project.name} · ${result.ok ? 'ready for agents' : 'needs attention'}`);
+    printRows(result.services.flatMap((service) => {
+      const config = project.config.providers[service.providerId] ?? builtInServices[service.providerId];
+      const context = [service.account, service.identity].filter(Boolean).join(' · ');
+      return [
+        {
+          detail: context,
+          label: config?.label ?? service.providerId,
+          status: pingResultStatus(service.ping),
+          tone: service.ping.ok ? 'good' as const : 'bad' as const,
+        },
+        ...service.checks.map((check) => ({
+          detail: `${check.method} ${check.path} · ${check.durationMs} ms`,
+          label: `  ${check.label}`,
+          status: `HTTP ${check.status}`,
+          tone: check.ok ? 'good' as const : 'bad' as const,
+        })),
+      ];
+    }));
+  }
+  if (!result.ok) process.exitCode = 1;
 }
 
 // Renders configured connections by default and turns --all into the calm service-catalog browser.
@@ -773,7 +824,7 @@ async function runHome(projectOverride?: string): Promise<void> {
   const services = await serviceStatuses(projectId);
   const accountCount = services.reduce((total, service) => total + service.accounts.length, 0);
   await runStatus([], projectOverride, services, true);
-  const needsAttention = services.filter((service) => service.accounts.length > 0 || service.required || service.projectConnectionMissing)
+  const needsAttention = services.filter((service) => service.accounts.length > 0 || service.required || service.projectConnectionMissing || service.projectConnectionPending)
     .filter((service) => !(projectId ? projectServiceReady(service) : serviceReady(service)));
   const reconnectable = needsAttention.filter((service) => service.remedy?.startsWith('signed-in login ') ?? true);
   const projectRoot = path.resolve(findSkillProjectRoot(process.cwd()));
@@ -1199,7 +1250,9 @@ function serviceSelectionChoices(services: ServiceStatus[]): TuiChoice<string>[]
     return leftOrder - rightOrder || left.label.localeCompare(right.label);
   }).map((service) => {
     const selected = service.accounts.find((account) => account.default) ?? service.accounts[0];
-    const hint = service.projectConnectionMissing
+    const hint = service.projectConnectionPending
+      ? 'Needs you · project connection is not signed in on this machine'
+      : service.projectConnectionMissing
       ? 'Needs you · project connection was removed'
       : selected?.ready
       ? `Connected${selected.account !== 'primary' ? ` · ${selected.account}` : ''}${selected.identity ? ` · ${conciseIdentity(service.id, selected.identity)}` : ''}`
@@ -1508,8 +1561,15 @@ async function runProject(commandArgs: string[], projectOverride?: string): Prom
       const configuredAlias = resolved.account && resolved.account !== activeAlias ? `configured as ${resolved.account}` : undefined;
       return {
         label: service,
-        status: status?.projectConnectionMissing ? 'connection removed' : activeAlias ?? 'machine default',
-        detail: [resolved.required ? 'required' : 'optional', configuredAlias, status?.projectConnectionMissing ? 'sign in, then re-trust' : undefined].filter(Boolean).join(' · '),
+        status: status?.projectConnectionPending ? 'sign-in pending' : status?.projectConnectionMissing ? 'connection removed' : activeAlias ?? 'machine default',
+        detail: [
+          resolved.required ? 'required' : 'optional',
+          configuredAlias,
+          resolved.expectedIdentity ? `expects ${resolved.expectedIdentity}` : undefined,
+          resolved.target ? `target ${resolved.target}` : undefined,
+          resolved.checks.length ? `${resolved.checks.length} capability ${resolved.checks.length === 1 ? 'check' : 'checks'}` : undefined,
+          status?.projectConnectionMissing ? 'sign in, then re-trust' : undefined,
+        ].filter(Boolean).join(' · '),
       };
     }));
     return;
@@ -1537,17 +1597,49 @@ async function runProject(commandArgs: string[], projectOverride?: string): Prom
     printHeading(`Trust ${config.project.name}`, path.basename(configPath));
     printRows(Object.entries(config.services).map(([service, binding]) => {
       const resolved = projectBinding(binding);
-      return { label: service, status: resolved.account ?? 'machine default', detail: resolved.required ? 'required' : 'optional' };
+      return {
+        label: service,
+        status: resolved.account ?? 'machine default',
+        detail: [
+          resolved.required ? 'required' : 'optional',
+          resolved.expectedIdentity ? `expects ${resolved.expectedIdentity}` : undefined,
+          resolved.target ? `target ${resolved.target}` : undefined,
+          resolved.checks.length ? `${resolved.checks.length} capability ${resolved.checks.length === 1 ? 'check' : 'checks'}` : undefined,
+        ].filter(Boolean).join(' · '),
+      };
     }));
-    process.stdout.write(`\n${ui.dim('This binds connections you already have. No credential is copied or re-entered.')}\n`);
+    process.stdout.write(`\n${ui.dim('Connections stay machine-wide. If one is missing here, signed-in will connect it next.')}\n`);
   }
   await requireInteractiveApproval(
     `Trust the reviewed bindings and policy for ${config.project.name}?`,
     `signed-in project trust --config ${JSON.stringify(configPath)} ${roots.map((root) => `--root ${JSON.stringify(root)}`).join(' ')}`,
   );
-  const result = await call('project.trust', { approved: true, config, configPath, roots });
+  let result = await call('project.trust', { approved: true, config, configPath, roots }) as {
+    missing: Array<{ alias?: string; service: string }>;
+  };
+  if (result.missing.length > 0 && !parsed.booleans.has('--json')) {
+    tuiStep(`${config.project.name} needs ${result.missing.length} ${result.missing.length === 1 ? 'connection' : 'connections'} on this machine.`);
+    await runLogin(result.missing.map(({ alias, service }) => `${service}${alias ? `@${alias}` : ''}`), config.project.id, true, true);
+    result = await call('project.trust', { approved: true, config, configPath, roots }) as typeof result;
+  }
   if (parsed.booleans.has('--json')) printJson(result);
-  else printSuccess(`${config.project.name} is trusted. Commands in ${roots[0]} now use its bindings.`);
+  else if (result.missing.length === 0) {
+    printSuccess(`${config.project.name} is trusted. Commands in ${roots[0]} now use its bindings.`);
+    if (!quietMode) {
+      const verify = await tuiConfirm(
+        `Test ${config.project.name}'s connections now?`,
+        'Test project',
+        'Not now',
+      );
+      if (verify) await runPing([], config.project.id);
+      else tuiNote(`${symbols.remedy} signed-in ping --project ${config.project.id}`, 'Run later');
+    }
+  }
+  else {
+    printWarning(`${config.project.name} is trusted, but ${result.missing.length} ${result.missing.length === 1 ? 'connection still needs' : 'connections still need'} sign-in.`);
+    for (const missing of result.missing) process.stdout.write(`  ${symbols.remedy} signed-in login ${missing.service}${missing.alias ? `@${missing.alias}` : ''}\n`);
+    process.exitCode = 1;
+  }
 }
 
 // Executes a native service namespace with project policy and exact alias selection.
@@ -2258,6 +2350,14 @@ function printServiceDetail(service: ServiceStatus, config: ServiceConfig): void
 
 // Reduces one service and its project binding to the compact default status row.
 function statusRow(service: ServiceStatus): { detail?: string; label: string; status: string; tone: 'good' | 'muted' | 'warn' } {
+  if (service.projectConnectionPending) {
+    return {
+      detail: `${service.projectAccount ? `${service.projectAccount} · ` : ''}not signed in on this machine`,
+      label: service.label,
+      status: 'needs you',
+      tone: 'warn',
+    };
+  }
   if (service.projectConnectionMissing) {
     return {
       detail: `${service.projectAccount ? `${service.projectAccount} · ` : ''}project connection was removed`,
@@ -2418,11 +2518,23 @@ function uniqueTargets(targets: ServiceTarget[]): ServiceTarget[] {
 }
 
 // Resolves project shorthand for human rendering without duplicating daemon alias logic.
-function projectBinding(binding: ProjectServiceBinding): { account?: string; required: boolean } {
-  if (binding === true) return { required: true };
-  if (typeof binding === 'string') return { account: binding, required: true };
+function projectBinding(binding: ProjectServiceBinding): {
+  account?: string;
+  checks: NonNullable<Exclude<ProjectServiceBinding, boolean | string>['checks']>;
+  expectedIdentity?: string;
+  required: boolean;
+  target?: string;
+} {
+  if (binding === true) return { checks: [], required: true };
+  if (typeof binding === 'string') return { account: binding, checks: [], required: true };
   const alias = binding.alias ?? binding.account;
-  return { ...(alias ? { account: alias } : {}), required: binding.required === true };
+  return {
+    ...(alias ? { account: alias } : {}),
+    checks: binding.checks ?? [],
+    ...(binding.expectedIdentity ? { expectedIdentity: binding.expectedIdentity } : {}),
+    required: binding.required === true,
+    ...(binding.target ? { target: binding.target } : {}),
+  };
 }
 
 // Checks PATH without starting a provider or trusting its bytes.

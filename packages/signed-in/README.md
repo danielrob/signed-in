@@ -24,7 +24,9 @@ clerk@acme-production
 ```
 
 Projects are optional. A trusted project can bind an exact connection and narrow its policy without
-placing credentials in the repository.
+placing credentials in the repository. It can also assert the provider identity, bind a
+provider-owned target such as a Convex deployment, and verify the safe read capabilities agents
+actually need through the same `signed-in ping` command.
 
 The package includes:
 

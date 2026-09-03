@@ -229,6 +229,12 @@ async function dispatchRequest(
       return service.listProjects();
     case 'project.describe':
       return service.describeProject(requireString(params.projectId, 'projectId'));
+    case 'project.verify':
+      return service.verifyProject({
+        cwd: requireString(params.cwd, 'cwd'),
+        projectId: requireString(params.projectId, 'projectId'),
+        providerId: optionalString(params.providerId),
+      }, { onChild: callbacks.onChild }, context.signal);
     case 'project.forget':
       return service.forgetProject({
         approved: optionalBoolean(params.approved),

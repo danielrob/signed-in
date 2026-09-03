@@ -53,7 +53,10 @@ separation requires another OS user, container, sandbox, or host.
 
 Explicit project aliases are resolved to immutable connection IDs at trust time. Renaming an alias
 does not alter the sealed target, and deleting then recreating the same alias cannot redirect it.
-The project fails closed until its source binding is reviewed and trusted again.
+If the alias is not connected on this machine, the reviewed project is sealed in a pending state and
+fails closed while the human completes normal login. Trust then resolves the new immutable ID. A
+removed sealed connection likewise fails closed until its source binding is reviewed and trusted
+again.
 
 ## Credential categories
 

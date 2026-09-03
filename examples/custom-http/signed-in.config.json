@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "project": {
+    "id": "acme-observability",
+    "name": "Acme Observability"
+  },
+  "environment": "production",
+  "services": {
+    "private-api": {
+      "alias": "acme-production",
+      "required": true,
+      "checks": [
+        {
+          "id": "production-status",
+          "label": "Read production status",
+          "method": "GET",
+          "path": "/v1/status?environment=production"
+        }
+      ]
+    }
+  },
+  "providers": {
+    "private-api": {
+      "label": "Private API",
+      "description": "Example internal service with read-only agent access.",
+      "docsUrl": "https://api.internal.example.com/docs",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "env": "PRIVATE_API_READONLY_KEY",
+          "helpUrl": "https://api.internal.example.com/settings/api-keys",
+          "id": "apiKey",
+          "label": "Read-only API key",
+          "portable": true
+        }
+      ],
+      "http": {
+        "auth": {
+          "field": "apiKey",
+          "header": "x-api-key",
+          "type": "header"
+        },
+        "baseUrl": "https://api.internal.example.com"
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/v1/me"
+      },
+      "signIn": "manual"
+    }
+  }
+}

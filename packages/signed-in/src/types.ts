@@ -153,6 +153,13 @@ export interface ServiceConfig extends ProviderConfig {
   installHint?: string;
   ping?: ServicePingConfig;
   signIn: 'interactive' | 'manual';
+  target?: ServiceTargetConfig;
+}
+
+export interface ServiceTargetConfig {
+  env: string;
+  label: string;
+  pattern?: string;
 }
 
 export interface PolicyRule {
@@ -194,8 +201,18 @@ export interface LegacySignedInProjectConfig {
 export type ProjectServiceBinding = true | string | {
   account?: string;
   alias?: string;
+  checks?: ProjectVerificationCheck[];
+  expectedIdentity?: string;
   required?: boolean;
+  target?: string;
 };
+
+export interface ProjectVerificationCheck {
+  id: string;
+  label?: string;
+  method?: 'GET' | 'HEAD';
+  path: string;
+}
 
 export interface ServiceCatalog {
   schemaVersion: 1;
@@ -206,6 +223,7 @@ export interface TrustedProject {
   connections?: Record<string, string>;
   config: SignedInProjectConfig;
   fingerprint: string;
+  pendingConnections?: string[];
   trustedAt: string;
 }
 
@@ -431,6 +449,7 @@ export interface ServiceStatus {
   label: string;
   projectAccount?: string;
   projectConnectionMissing?: boolean;
+  projectConnectionPending?: boolean;
   required: boolean;
   remedy?: string;
   signIn: 'interactive' | 'manual';
@@ -466,6 +485,38 @@ export interface ServicePingResult {
   ok: boolean;
   providerId: string;
   status?: number;
+  target?: ServicePingTarget;
+}
+
+export interface ServicePingTarget {
+  label: string;
+  value: string | null;
+}
+
+export interface ProjectVerificationCheckResult {
+  durationMs: number;
+  id: string;
+  label: string;
+  method: 'GET' | 'HEAD';
+  ok: boolean;
+  path: string;
+  status: number;
+}
+
+export interface ProjectServiceVerificationResult {
+  account: string;
+  checks: ProjectVerificationCheckResult[];
+  identity?: string;
+  ok: boolean;
+  ping: ServicePingResult;
+  providerId: string;
+  target?: ServicePingTarget;
+}
+
+export interface ProjectVerificationResult {
+  ok: boolean;
+  projectId: string;
+  services: ProjectServiceVerificationResult[];
 }
 
 export interface PairingEnvelope {

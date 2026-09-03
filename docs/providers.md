@@ -9,7 +9,7 @@ The packaged service catalog or a trusted extension adapter may define:
 - a native CLI executable, fixed prefix argv, and delivery mode;
 - an isolated login argv and optional remote-login argv;
 - private token resolvers from command text, command JSON, AWS process JSON, or captured JSON files;
-- one HTTPS base origin, additional authenticated hosts, and credential-free auxiliary egress;
+- one fixed HTTPS base origin, additional authenticated hosts, and credential-free auxiliary egress;
 - Bearer, custom-header, Basic, App Store Connect JWT, AWS SigV4, or no HTTP auth;
 - provider-specific native classification patterns;
 - independent or shared machine-credential behavior.
@@ -36,6 +36,7 @@ Placeholders in fixed prefix arguments are limited to `{cwd}` and `{workspaceRoo
 | Sentry | hidden auth token | `sentry-cli` | REST API | shared fallback | proxy |
 | Better Stack | hidden API token | — | Uptime/Telemetry APIs | shared fallback | brokered HTTP |
 | PostHog | hidden personal API key | — | REST API | shared fallback | brokered HTTP |
+| Shopify | `shopify auth login` | Shopify CLI | — | independent | ephemeral session |
 | Stripe | hidden secret key | `stripe` | REST API | shared fallback | proxy |
 | App Store Connect | issuer, key ID, `.p8` | — | fresh ES256 JWT per call | shared fallback | brokered HTTP |
 | Meta | hidden system-user token | — | Graph API | shared fallback | brokered HTTP |
@@ -81,6 +82,49 @@ creation exception exists only inside an explicit human login.
 Native deployment and REST management are available by default. A trusted project can deny deploy
 commands when publication is owned by a separate release harness.
 
+### Shopify
+
+`signed-in login shopify` installs the official Shopify CLI when it is missing, then opens Shopify's
+browser login only after the user chooses the sign-in action. It retains the resulting CLI state in an
+isolated encrypted session and does not ask the user to create or paste an Admin API token. Run Shopify
+commands through `signed-in shopify ...` so they use that sealed session instead of whichever account
+happens to be active in the global CLI. This account login does not itself grant access to a merchant's
+Admin API.
+
+Shopify's Dev MCP server supplies unauthenticated documentation, schemas, and validation; it is
+separate from merchant authority. For direct Admin API work, Shopify's CLI Connector app is the
+supported agent-oriented path. It deliberately adds a second, per-store authorization boundary. A
+human can grant only the scopes needed for the task without copying a token:
+
+```sh
+signed-in shopify store auth --store example.myshopify.com --scopes read_products,read_orders
+```
+
+signed-in requires this command to be run and confirmed in an interactive terminal. Shopify then
+opens its own Admin consent page, where the merchant reviews the Connector app, scopes, and API terms.
+No local app source is created: this route is for direct CLI/agent store operations. Shopify stores
+the resulting user-bound online access token inside the same isolated session, and subsequent
+`store execute` and `store bulk` commands reuse it.
+
+Projects can bind the exact store as their provider target:
+
+```json
+{
+  "services": {
+    "shopify": {
+      "alias": "acme",
+      "target": "example.myshopify.com"
+    }
+  }
+}
+```
+
+Ambient Shopify scope, store, password, and mutation flags are removed before the isolated CLI starts;
+the trusted project target is applied afterward. GraphQL mutations remain disabled by Shopify unless
+`--allow-mutations` is supplied, and signed-in classifies that flag as a mutating operation. For a
+deployed integration rather than direct operator work, scaffold a Shopify app and manage its scopes
+and installation in app configuration instead of relying on the CLI Connector app.
+
 ## Adding a service
 
 1. Prefer a provider browser/device session that can yield renewable authority without exporting it.
@@ -97,6 +141,11 @@ commands when publication is owned by a separate release harness.
 The built-in catalog is the normal route for broadly useful services. A project may seal an extension
 adapter for a private or transitional integration, but that must not make basic login dependent on a
 project.
+
+For a private API, define a manual credential, fixed HTTPS origin, header injection, and harmless
+`/me`-style ping in `providers`, then bind it in `services`. Project checks can prove the particular
+read surfaces an agent needs without exposing their bodies. See the
+[custom HTTP example](../examples/custom-http/signed-in.config.json).
 
 ## Optional Pipedream adapter
 

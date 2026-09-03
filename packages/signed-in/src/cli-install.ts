@@ -54,6 +54,9 @@ const recipesByService: Readonly<Record<string, readonly CliInstallRecipe[]>> = 
   sentry: [
     { args: ['install', '--global', '@sentry/cli'], command: 'npm', platforms: allPlatforms },
   ],
+  shopify: [
+    { args: ['install', '--global', '@shopify/cli@latest'], command: 'npm', platforms: allPlatforms },
+  ],
   stripe: [
     { args: ['install', 'stripe/stripe-cli/stripe'], command: 'brew', platforms: unixPlatforms },
     { args: ['install', 'stripe'], command: 'scoop', platforms: ['win32'] },

@@ -324,6 +324,11 @@
           "status"
         ]
       },
+      "target": {
+        "env": "CONVEX_DEPLOYMENT",
+        "label": "deployment",
+        "pattern": "^(?:dev|prod):[a-z0-9-]+$"
+      },
       "signIn": "interactive"
     },
     "clerk": {
@@ -884,6 +889,63 @@
         "path": "/api/organizations/?limit=1"
       },
       "signIn": "manual"
+    },
+    "shopify": {
+      "label": "Shopify",
+      "description": "Apps, stores, themes, products, orders, and Admin API operations through Shopify CLI.",
+      "docsUrl": "https://shopify.dev/docs/api/shopify-cli",
+      "credentialMode": "independent",
+      "cli": {
+        "clearEnv": [
+          "SHOPIFY_FLAG_*"
+        ],
+        "command": "shopify",
+        "delivery": "session"
+      },
+      "installHint": "https://shopify.dev/docs/api/shopify-cli#installation",
+      "policy": {
+        "confirmCliPatterns": [
+          [
+            "--scopes"
+          ]
+        ],
+        "mutatingCliPatterns": [
+          [
+            "--scopes"
+          ],
+          [
+            "--allow-mutations"
+          ]
+        ]
+      },
+      "ping": {
+        "args": [
+          "organization",
+          "list",
+          "--json"
+        ],
+        "interface": "native"
+      },
+      "session": {
+        "env": {
+          "SHOPIFY_CLI_NO_ANALYTICS": "1"
+        },
+        "loginArgs": [
+          "auth",
+          "login"
+        ],
+        "remoteLoginArgs": [
+          "auth",
+          "login"
+        ],
+        "retain": true
+      },
+      "target": {
+        "env": "SHOPIFY_FLAG_STORE",
+        "label": "store",
+        "pattern": "^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$"
+      },
+      "signIn": "interactive"
     },
     "stripe": {
       "label": "Stripe",

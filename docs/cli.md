@@ -134,7 +134,9 @@ forwarding.
 ## Optional projects
 
 Machine connections exist independently of repositories. A project is a later, optional map from
-services to aliases plus policy that can only narrow machine authority. Explicit aliases resolve to
+services to aliases plus policy that can only narrow machine authority. A binding may additionally
+assert the provider identity, select a catalog-declared target inside that authority, and declare
+read-only capability checks. Explicit aliases resolve to
 immutable connection IDs when the project is trusted; renaming an alias therefore cannot redirect
 or break the sealed project. A `true` binding deliberately follows the service's machine default.
 
@@ -146,12 +148,22 @@ The config is deliberately just a readable map of the aliases shown by `signed-i
   "project": { "id": "acme-app", "name": "Acme App" },
   "providers": {},
   "services": {
-    "aws": "acme",
+    "aws": { "alias": "acme-production", "expectedIdentity": "123456789012", "required": true },
+    "convex": { "alias": "acme", "target": "prod:helpful-otter-123", "required": true },
     "github": "acme",
-    "resend": { "alias": "acme", "required": true }
+    "resend": {
+      "alias": "acme",
+      "required": true,
+      "checks": [{ "id": "domains", "label": "Read sending domains", "path": "/domains" }]
+    }
   }
 }
 ```
+
+Connections and targets are deliberately separate. Clerk production commonly needs a distinct
+credential and therefore a distinct alias such as `clerk@acme-production`. Convex deployments share
+one account login, so the project keeps one connection and supplies its sealed `CONVEX_DEPLOYMENT`
+target to every Convex command.
 
 This source stays understandable after an alias is renamed: the already trusted snapshot continues
 using its sealed connection, while `signed-in project show` calls out the old configured alias so an
@@ -166,8 +178,18 @@ signed-in project forget <id>
 
 `project trust` discovers `signed-in.config.json` upward from the current directory when `--config`
 is omitted. It shows the bindings before asking for approval, seals the reviewed snapshot, and pins
-provider executables. It does not copy credentials into the project. A repository edit cannot alter
+provider executables. If an explicit alias is absent, it keeps the project safely pending, guides the
+human through that connection's normal login, and re-seals the immutable connection ID afterward.
+The completed flow offers full project verification as its default next action. It does not copy
+credentials into the project. A repository edit cannot alter
 the sealed runtime policy until a human trusts it again.
+
+Inside a trusted project, the ordinary `signed-in ping [service]` automatically rejects any
+connection whose captured provider identity differs from `expectedIdentity`, applies its target,
+then runs the service's authentication probe plus every declared HTTP `GET` or `HEAD` check. Outside
+a project, the same command simply tests the selected standalone connection. A 403 is reported as
+insufficient capability instead of being mistaken for a valid login. Response bodies never leave the
+daemon.
 
 Inside a trusted root, commands automatically use that project's connection bindings. An explicit
 override can appear before or after a built-in command:

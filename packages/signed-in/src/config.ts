@@ -172,7 +172,36 @@ function validateProjectBinding(serviceId: string, value: unknown, source: strin
   if (value.account !== undefined && (typeof value.account !== 'string' || !isSafeAccountName(value.account))) {
     throw new Error(`${source}: services.${serviceId}.account is not a safe legacy alias`);
   }
+  if (value.expectedIdentity !== undefined) {
+    const identity = requireString(value.expectedIdentity, `${source}: services.${serviceId}.expectedIdentity`);
+    if (identity.length > 160 || /[\r\n]/u.test(identity)) throw new Error(`${source}: services.${serviceId}.expectedIdentity is too long or contains a newline`);
+  }
+  if (value.target !== undefined) {
+    const target = requireString(value.target, `${source}: services.${serviceId}.target`);
+    if (target.length > 256 || /[\r\n\0]/u.test(target)) throw new Error(`${source}: services.${serviceId}.target is unsafe`);
+  }
+  if (value.checks !== undefined) validateProjectChecks(serviceId, value.checks, source);
   validateOptionalBoolean(value.required, `${source}: services.${serviceId}.required`);
+}
+
+// Restricts project capability probes to named, read-only paths on the provider's sealed HTTP origin.
+function validateProjectChecks(serviceId: string, value: unknown, source: string): void {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${source}: services.${serviceId}.checks must contain at least one check`);
+  const ids = new Set<string>();
+  for (const [index, check] of value.entries()) {
+    if (!isRecord(check)) throw new Error(`${source}: services.${serviceId}.checks[${index}] must be an object`);
+    const id = requireString(check.id, `${source}: services.${serviceId}.checks[${index}].id`);
+    if (!providerIdPattern.test(id) || ids.has(id)) throw new Error(`${source}: services.${serviceId}.checks contains an invalid or duplicate id '${id}'`);
+    ids.add(id);
+    if (check.label !== undefined) requireString(check.label, `${source}: services.${serviceId}.checks[${index}].label`);
+    if (check.method !== undefined && !['GET', 'HEAD'].includes(String(check.method))) {
+      throw new Error(`${source}: services.${serviceId}.checks[${index}].method must be GET or HEAD`);
+    }
+    const requestPath = requireString(check.path, `${source}: services.${serviceId}.checks[${index}].path`);
+    if (!requestPath.startsWith('/') || requestPath.startsWith('//') || /[\r\n]/u.test(requestPath)) {
+      throw new Error(`${source}: services.${serviceId}.checks[${index}].path must be a relative HTTP path`);
+    }
+  }
 }
 
 // Canonicalizes object keys recursively so fingerprints do not depend on formatting or insertion order.
@@ -244,6 +273,7 @@ function validateService(providerId: string, value: unknown, source: string): vo
     throw new Error(`${source}: ${providerId}.identityArgs must be an array of strings`);
   }
   if (value.ping !== undefined) validateServicePing(providerId, value.ping, value, source);
+  if (value.target !== undefined) validateServiceTarget(providerId, value.target, value, source);
   if (value.signIn === 'interactive' && (!isRecord(value.session) || !isStringArray(value.session.loginArgs) || value.session.loginArgs.length === 0)) {
     throw new Error(`${source}: interactive ${providerId} needs non-empty session.loginArgs`);
   }
@@ -251,6 +281,26 @@ function validateService(providerId: string, value: unknown, source: string): vo
     const fields = Array.isArray(value.credentials) ? value.credentials : [];
     const hasHelp = fields.some((field) => isRecord(field) && typeof field.helpUrl === 'string' && field.helpUrl.length > 0);
     if (!hasHelp) throw new Error(`${source}: manual ${providerId} needs a credential helpUrl`);
+  }
+}
+
+// Allows a project target to reach a CLI through one catalog-owned environment variable only.
+function validateServiceTarget(providerId: string, value: unknown, service: Record<string, unknown>, source: string): void {
+  if (!isRecord(value)) throw new Error(`${source}: ${providerId}.target must be an object`);
+  if (!service.cli) throw new Error(`${source}: ${providerId}.target requires CLI configuration`);
+  const env = requireString(value.env, `${source}: ${providerId}.target.env`);
+  requireString(value.label, `${source}: ${providerId}.target.label`);
+  if (!/^[A-Z][A-Z0-9_]*$/u.test(env)) throw new Error(`${source}: ${providerId}.target.env must be an uppercase environment variable`);
+  if (/^(?:BASH_ENV|DYLD_.*|LD_.*|NODE_OPTIONS|PERL5OPT|PYTHONPATH|RUBYOPT)$/u.test(env)) {
+    throw new Error(`${source}: ${providerId}.target.env cannot inject runtime loader options`);
+  }
+  const credentialEnvironment = Array.isArray(service.credentials)
+    ? service.credentials.filter(isRecord).map((field) => field.env)
+    : [];
+  if (credentialEnvironment.includes(env)) throw new Error(`${source}: ${providerId}.target.env cannot replace credential delivery`);
+  if (value.pattern !== undefined) {
+    const pattern = requireString(value.pattern, `${source}: ${providerId}.target.pattern`);
+    try { new RegExp(pattern, 'u'); } catch { throw new Error(`${source}: ${providerId}.target.pattern must be a valid regular expression`); }
   }
 }
 
