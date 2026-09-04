@@ -1273,7 +1273,9 @@ export class SignedInService {
       });
       this.#persistCommandResult(serviceId, connectionId, result);
       if (result.exitCode !== 0) return undefined;
-      const identity = Buffer.concat(stdout).toString('utf8').trim().replace(/\s+/gu, ' ').slice(0, 160);
+      const output = Buffer.concat(stdout).toString('utf8');
+      const value: unknown = service.identityJsonField ? JSON.parse(output)?.[service.identityJsonField] : output;
+      const identity = typeof value === 'string' ? value.trim().replace(/\s+/gu, ' ').slice(0, 160) : '';
       return identity || undefined;
     } catch {
       return undefined;

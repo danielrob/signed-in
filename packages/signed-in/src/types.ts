@@ -53,6 +53,7 @@ export interface ExistingLoginConfig {
 }
 
 export interface NativeCliConfig {
+  adapter?: 'gws-gmail';
   clearEnv?: string[];
   command: string;
   delivery?: NativeDelivery;
@@ -150,6 +151,7 @@ export type ServicePingConfig =
 
 export interface ServiceConfig extends ProviderConfig {
   identityArgs?: string[];
+  identityJsonField?: string;
   installHint?: string;
   ping?: ServicePingConfig;
   signIn: 'interactive' | 'manual';

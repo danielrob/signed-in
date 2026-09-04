@@ -38,9 +38,10 @@ export class StreamRedactor {
     return output;
   }
 
-  // Releases a complete interactive prompt immediately so redaction buffering cannot deadlock provider login.
-  flushPrompt(): string {
-    if (!/[:?>]\s*$/u.test(this.#buffer) && !githubDevicePromptPattern.test(this.#buffer)) return '';
+  // Releases prompts, or opted-in complete login lines, so redaction buffering cannot deadlock a browser flow.
+  flushPrompt(completeLoginLines = false): string {
+    if (!/[:?>]\s*$/u.test(this.#buffer) && !githubDevicePromptPattern.test(this.#buffer)
+      && !(completeLoginLines && /\r?\n\s*$/u.test(this.#buffer))) return '';
     const redacted = redactText(this.#buffer, this.#secrets);
     if (redacted !== this.#buffer) return '';
     this.#buffer = '';

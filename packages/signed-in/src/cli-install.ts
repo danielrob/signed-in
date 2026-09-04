@@ -45,6 +45,10 @@ const recipesByService: Readonly<Record<string, readonly CliInstallRecipe[]>> = 
     { args: ['install', 'gh'], command: 'brew', platforms: unixPlatforms },
     { args: ['install', '--exact', '--id', 'GitHub.cli', ...wingetConsent], command: 'winget', platforms: ['win32'] },
   ],
+  gws: [
+    { args: ['install', 'googleworkspace-cli'], command: 'brew', platforms: unixPlatforms },
+    { args: ['install', '--global', '@googleworkspace/cli'], command: 'npm', platforms: allPlatforms },
+  ],
   netlify: [
     { args: ['install', '--global', 'netlify-cli'], command: 'npm', platforms: allPlatforms },
   ],

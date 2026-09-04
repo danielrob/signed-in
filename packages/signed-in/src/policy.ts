@@ -1,3 +1,4 @@
+import { allowsGwsGmailCommand } from './gws.js';
 import type {
   SignedInProjectConfig,
   Operation,
@@ -81,6 +82,14 @@ function evaluateHardDenial(
   }
   if (operation.interface === 'native') {
     const args = operation.args ?? [];
+    if (provider?.cli?.adapter === 'gws-gmail' && !allowsGwsGmailCommand(args)) {
+      return {
+        classification,
+        effect: 'deny',
+        matchedRules: ['signed-in:gmail-readonly'],
+        reason: 'GWS email access supports only reviewed Gmail read commands and inline parameters. Other services, writes, auth commands, and file flags are unavailable.',
+      };
+    }
     if (args.some((argument) => forbiddenSecretFlags.test(argument))) {
       return {
         classification: 'credential-control',

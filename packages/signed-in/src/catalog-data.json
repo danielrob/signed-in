@@ -151,6 +151,30 @@
       },
       "signIn": "interactive"
     },
+    "gws": {
+      "label": "Gmail (Google Workspace CLI)",
+      "description": "Read-only Gmail search, messages, threads, drafts, labels, and attachments through gws. Separate from Google Cloud sign-in.",
+      "docsUrl": "https://github.com/googleworkspace/cli",
+      "credentialMode": "independent",
+      "cli": {
+        "adapter": "gws-gmail",
+        "clearEnv": ["GOOGLE_*", "GWS_*", "GCLOUD_*", "CLOUDSDK_*", "RUST_LOG"],
+        "command": "gws",
+        "delivery": "session"
+      },
+      "installHint": "Install with brew install googleworkspace-cli or npm install --global @googleworkspace/cli",
+      "identityArgs": ["gmail", "users", "getProfile", "--params", "{\"userId\":\"me\"}"],
+      "identityJsonField": "emailAddress",
+      "ping": {
+        "interface": "native",
+        "args": ["gmail", "users", "getProfile", "--params", "{\"userId\":\"me\"}"]
+      },
+      "session": {
+        "loginArgs": ["auth", "login", "--scopes", "https://www.googleapis.com/auth/gmail.readonly"],
+        "retain": true
+      },
+      "signIn": "interactive"
+    },
     "gcp": {
       "label": "Google Cloud",
       "description": "Google Cloud projects, IAM, APIs, and hosted resources.",

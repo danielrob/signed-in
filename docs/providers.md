@@ -25,6 +25,7 @@ Placeholders in fixed prefix arguments are limited to `{cwd}` and `{workspaceRoo
 | --- | --- | --- | --- | --- | --- |
 | AWS | `aws login`, then shared IAM key bootstrap | `aws` | SigV4 hosts | shared | proxy |
 | Google Cloud | `gcloud auth login`, private access-token resolver | `gcloud` | Google APIs | independent | proxy |
+| Gmail (`gws`) | Gmail read-only OAuth via `gws auth login` | reviewed Gmail reads | — | independent | ephemeral session |
 | Convex | `convex login` user token | Convex CLI | — | independent | ephemeral session |
 | Clerk | hidden backend secret key | — | Backend API | shared fallback | brokered HTTP |
 | Netlify | `netlify login`, captured token extraction | `netlify` | REST API | independent | proxy |
@@ -41,6 +42,46 @@ Placeholders in fixed prefix arguments are limited to `{cwd}` and `{workspaceRoo
 | App Store Connect | issuer, key ID, `.p8` | — | fresh ES256 JWT per call | shared fallback | brokered HTTP |
 | Meta | hidden system-user token | — | Graph API | shared fallback | brokered HTTP |
 | npm | hidden granular token | — | registry API | shared fallback | brokered HTTP |
+
+### Gmail / Google Workspace CLI
+
+`signed-in login gws` uses the Google Workspace CLI, separately from `signed-in login gcp`.
+Installers support Homebrew (`googleworkspace-cli`) and npm (`@googleworkspace/cli`). The upstream
+CLI is actively developed but is not an officially supported Google product.
+
+Before the first connection, configure a Google OAuth **desktop** client using `gws auth setup`,
+or follow the [upstream manual setup](https://github.com/googleworkspace/cli#authentication).
+The client file must be at `~/.config/gws/client_secret.json` (including on Windows); custom config
+directories are not imported. Enable the Gmail API, and add the intended Google account as a test
+user if the consent app is in testing. Testing-mode grants can expire and require another login.
+Do not paste the client file or tokens into agent chat.
+
+During a human-started login, the daemon privately copies only that OAuth application configuration
+into a new isolated home. It never imports or overwrites the ambient gws user login. Google asks
+the human to select the account and grant `gmail.readonly`, plus gws's basic identity scopes.
+A successful Gmail profile probe is required before the connection is saved; its `emailAddress`
+becomes the identity label. Each alias retains its own encrypted session and refresh state.
+
+```sh
+signed-in login gws
+signed-in ping gws --json
+signed-in gws gmail users messages list --params '{"userId":"me","q":"in:inbox","maxResults":10}'
+signed-in gws gmail users messages get --params '{"userId":"me","id":"MESSAGE_ID","format":"full"}'
+```
+
+Supported methods are `users getProfile`; `messages`, `threads`, `labels`, and `drafts` `list`/`get`;
+`messages attachments get`; and `history list`, all under `gmail`. Flags follow the method:
+`--params` (inline JSON), `--format` (`json`, `table`, `yaml`, `csv`), `--page-all`, `--page-limit`,
+`--page-delay`, `--dry-run`, and `--help`. Attachment data is returned to stdout, not written by gws.
+Use `"userId":"me"`; select other connected accounts with `gws@alias`, not a userId override.
+Sending, changing mail, Gmail settings, Workspace services other than Gmail, helper commands,
+credential exports, and file input/output flags are denied even if a project policy allows them.
+
+gws runs from the isolated home with an empty `.env`, sanitized Google environment variables, and
+its file-based encryption backend. This prevents dotenv traversal and machine-keyring collisions
+between aliases. The encryption key and refreshed credentials are re-sealed in signed-in's vault
+after each command; temporary session files are removed afterward. gws auth errors become the usual
+exit-75 `signed-in login gws@alias` remedy. Revocation is not repaired by borrowing another login.
 
 ### Polar
 

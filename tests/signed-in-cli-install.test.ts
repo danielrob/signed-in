@@ -47,7 +47,7 @@ test('every built-in CLI service has a macOS installer except Polar’s privileg
   const installable = cliServices.filter((serviceId) =>
     Boolean(resolveCliInstallPlan(serviceId, { available: () => true, platform: 'darwin' })));
   const guideOnly = cliServices.filter((serviceId) => !installable.includes(serviceId));
-  assert.deepEqual(installable, ['aws', 'cloudflare', 'convex', 'gcp', 'github', 'netlify', 'openai', 'sentry', 'shopify', 'stripe']);
+  assert.deepEqual(installable, ['aws', 'cloudflare', 'convex', 'gcp', 'github', 'gws', 'netlify', 'openai', 'sentry', 'shopify', 'stripe']);
   assert.deepEqual(guideOnly, ['polar']);
 });
 

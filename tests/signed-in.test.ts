@@ -344,7 +344,7 @@ test('account grammar fails before authentication and names its reserved words',
 });
 
 test('built-in catalog separates interactive sign-in from manual runtime CLIs', () => {
-  assert.equal(Object.keys(builtInServices).length, 18);
+  assert.equal(Object.keys(builtInServices).length, 19);
   assert.equal(builtInServices.github?.signIn, 'interactive');
   assert.equal(builtInServices.stripe?.signIn, 'manual');
   assert.equal(builtInServices.openai?.signIn, 'manual');

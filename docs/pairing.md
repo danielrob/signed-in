@@ -57,7 +57,7 @@ logs or buffers are retained.
 Only fields whose provider uses `credentialMode: shared` and whose field is explicitly marked
 `portable: true` enter the payload. Provider sessions are never copied by the normal pairing path.
 
-Google Cloud, GitHub, Cloudflare, Netlify, Polar, and Convex use independent machine authority. AWS,
+Google Cloud, Gmail through GWS, GitHub, Cloudflare, Netlify, Polar, and Convex use independent machine authority. AWS,
 Clerk, Resend, OpenAI, Sentry, Better Stack, and similar providers copy fields only where the adapter
 deliberately defines the connection as shared.
 

@@ -2762,6 +2762,10 @@ function printServiceHelp(serviceId: string, service: ServiceConfig): void {
   if (service.http) usage.push(`signed-in request ${serviceId}[@alias] <METHOD> <path> [request options…]`);
   const examples = [
     `signed-in status ${serviceId}`,
+    ...(service.cli?.adapter === 'gws-gmail' ? [
+      `signed-in ${serviceId} gmail users messages list --params '{"userId":"me","q":"in:inbox","maxResults":10}'`,
+      `signed-in ${serviceId} gmail users messages get --params '{"userId":"me","id":"MESSAGE_ID","format":"full"}'`,
+    ] : []),
     ...(service.cli ? [`signed-in ${serviceId} --help`] : []),
     service.cli
       ? `signed-in policy explain ${serviceId} --json -- <${service.cli.command} arguments…>`
@@ -2773,6 +2777,12 @@ function printServiceHelp(serviceId: string, service: ServiceConfig): void {
     notes: [
       `Access: ${access || 'guided sign-in only'}.`,
       'Add @alias only when status shows more than one connection.',
+      ...(service.cli?.adapter === 'gws-gmail' ? [
+        'Gmail reads only; sending, deleting, settings, other Workspace services, and auth export are blocked.',
+        'First configure an OAuth desktop client with gws auth setup, then run signed-in login gws and choose your Gmail account.',
+        'Login privately copies only ~/.config/gws/client_secret.json; existing gws user credentials and Google Cloud login are not imported or changed.',
+        'Parameters must be inline JSON. Put flags after the method; file input/output and helper commands are not supported.',
+      ] : []),
       `Provider documentation: ${service.docsUrl ?? 'not configured'}`,
     ],
     summary: service.description ?? `Authenticated ${service.label} access through signed-in.`,

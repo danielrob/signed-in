@@ -272,6 +272,10 @@ function validateService(providerId: string, value: unknown, source: string): vo
   if (value.identityArgs !== undefined && !isStringArray(value.identityArgs)) {
     throw new Error(`${source}: ${providerId}.identityArgs must be an array of strings`);
   }
+  if (value.identityJsonField !== undefined) {
+    requireString(value.identityJsonField, `${source}: ${providerId}.identityJsonField`);
+    if (!value.identityArgs) throw new Error(`${source}: ${providerId}.identityJsonField requires identityArgs`);
+  }
   if (value.ping !== undefined) validateServicePing(providerId, value.ping, value, source);
   if (value.target !== undefined) validateServiceTarget(providerId, value.target, value, source);
   if (value.signIn === 'interactive' && (!isRecord(value.session) || !isStringArray(value.session.loginArgs) || value.session.loginArgs.length === 0)) {
@@ -367,6 +371,12 @@ function validateServicePing(providerId: string, value: unknown, service: Record
 // Blocks shell commands at the schema boundary; signed-in may launch only one declared executable with argv.
 function validateCli(providerId: string, value: unknown, source: string): void {
   if (!isRecord(value)) throw new Error(`${source}: ${providerId}.cli must be an object`);
+  if (value.adapter !== undefined) {
+    if (value.adapter !== 'gws-gmail') throw new Error(`${source}: ${providerId}.cli.adapter is unsupported`);
+    if (value.delivery !== 'session' || (value.prefixArgs !== undefined && (!isStringArray(value.prefixArgs) || value.prefixArgs.length > 0))) {
+      throw new Error(`${source}: ${providerId}.cli.adapter requires session delivery without prefixArgs`);
+    }
+  }
   const command = requireString(value.command, `${source}: ${providerId}.cli.command`);
   const forbidden = new Set([
     'bash', 'bun', 'cmd', 'deno', 'env', 'node', 'npm', 'npx', 'pnpm', 'powershell', 'pwsh',

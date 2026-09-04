@@ -22,5 +22,9 @@ export function openExternalUrl(value: string): Promise<void> {
 export function findProviderLoginUrl(providerId: string, output: string): string | undefined {
   if (providerId === 'convex') return output.match(/https:\/\/auth\.convex\.dev\/device\?user_code=[A-Z0-9-]+/u)?.[0];
   if (providerId === 'github') return output.match(/https:\/\/github\.com\/login\/device/u)?.[0];
+  if (providerId === 'gws') {
+    // GWS waits for a localhost callback; only a complete Google-owned OAuth URL is safe to open.
+    return output.match(/https:\/\/accounts\.google\.com\/o\/oauth2\/(?:v2\/)?auth\?[^\s]+\r?\n/u)?.[0].trim();
+  }
   return undefined;
 }

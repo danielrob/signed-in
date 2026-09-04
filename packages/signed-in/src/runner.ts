@@ -5,6 +5,7 @@ import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import { dummyCredentialEnvironment } from './http-auth.js';
+import { gwsLoginSecrets, isolateGwsSandbox, seedGwsClientConfig } from './gws.js';
 import { classifyOperation } from './policy.js';
 import {
   startCredentialProxy,
@@ -161,11 +162,18 @@ function emptyRunnerCredentialRecord(): CredentialRecord {
 // Applies adapter-specific environment clearing before any retained provider session is materialized.
 function createProviderSessionSandbox(provider: ProviderConfig, bundle?: SessionBundle): SessionSandbox {
   if (!provider.cli) throw new Error('Provider session sandbox needs a trusted CLI');
-  return createSessionSandbox(
+  const sandbox = createSessionSandbox(
     bundle,
     provider.session,
     sanitizeEnvironment(process.env, provider.cli.clearEnv),
   );
+  try {
+    if (provider.cli.adapter === 'gws-gmail') isolateGwsSandbox(sandbox);
+    return sandbox;
+  } catch (error) {
+    sandbox.cleanup();
+    throw error;
+  }
 }
 
 // Reduces catalog-approved identity output to one bounded display value, optionally through a declared capture group.
@@ -224,17 +232,23 @@ export async function runProviderLogin(options: {
   if (!options.provider.cli || !options.provider.session) throw new Error('Provider does not define a native login flow');
   const sandbox = createProviderSessionSandbox(options.provider, options.session);
   try {
+    const isGws = options.provider.cli.adapter === 'gws-gmail';
+    if (isGws) seedGwsClientConfig(sandbox);
     const args = options.remote && options.provider.session.remoteLoginArgs
       ? options.provider.session.remoteLoginArgs
       : options.provider.session.loginArgs;
     const exitCode = await executeChild(
       options.provider.cli,
       args,
-      options.cwd,
+      isGws ? sandbox.home : options.cwd,
       sandbox.env,
       options.callbacks,
-      [...Object.values(options.credentials.fields), ...sessionSecrets(options.session)],
+      [...Object.values(options.credentials.fields), ...(isGws ? gwsLoginSecrets(sandbox.snapshot()) : sessionSecrets(options.session))],
     );
+    if (exitCode === 0 && isGws) {
+      // A completed consent flow is not a usable email connection until Gmail itself accepts it.
+      await capturePrivateCommand(options.provider.cli, ['gmail', 'users', 'getProfile', '--params', '{"userId":"me"}'], sandbox.home, sandbox.env, options.callbacks.onChild, 30_000);
+    }
     let credentials = options.credentials;
     if (exitCode === 0 && options.provider.session.resolvers?.length) {
       const resolved = await resolveSessionCredentials({
@@ -457,11 +471,14 @@ async function runSessionDeliveredCommand(options: {
     const exitCode = await executeChild(
       options.provider.cli,
       options.args,
-      options.cwd,
+      options.provider.cli.adapter === 'gws-gmail' ? sandbox.home : options.cwd,
       sandbox.env,
       options.callbacks,
       options.secrets,
     );
+    if (options.provider.cli.adapter === 'gws-gmail' && exitCode === 2) {
+      throw new ProviderAuthenticationError('GWS rejected the stored Gmail login');
+    }
     return { credentials: options.credentials, exitCode, session: sandbox.snapshot() };
   } finally {
     sandbox.cleanup();
@@ -635,12 +652,13 @@ function executeChild(
     const stderrRedactor = new StreamRedactor(secrets);
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
+    const flushLoginLines = cli.adapter === 'gws-gmail' && args[0] === 'auth' && args[1] === 'login';
     child.stdout.on('data', (chunk: Buffer) => {
-      const safe = `${stdoutRedactor.push(stdoutDecoder.write(chunk))}${stdoutRedactor.flushPrompt()}`;
+      const safe = `${stdoutRedactor.push(stdoutDecoder.write(chunk))}${stdoutRedactor.flushPrompt(flushLoginLines)}`;
       if (safe) callbacks.onStdout(Buffer.from(safe, 'utf8'));
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      const safe = `${stderrRedactor.push(stderrDecoder.write(chunk))}${stderrRedactor.flushPrompt()}`;
+      const safe = `${stderrRedactor.push(stderrDecoder.write(chunk))}${stderrRedactor.flushPrompt(flushLoginLines)}`;
       if (safe) callbacks.onStderr(Buffer.from(safe, 'utf8'));
     });
     child.on('error', reject);
