@@ -39,7 +39,7 @@ export async function performGatewayRequest(options: {
       options.credentials,
       options.method,
       url,
-      { ...(options.gateway.defaultHeaders ?? {}), ...options.headers },
+      mergeHeaders(options.gateway.defaultHeaders ?? {}, options.headers),
       options.body,
     );
     response = await fetch(url, {
@@ -77,6 +77,18 @@ export async function performGatewayRequest(options: {
     status: response.status,
     url: response.url,
   };
+}
+
+// Lets caller headers override adapter defaults without emitting duplicate case variants that providers parse ambiguously.
+function mergeHeaders(defaults: Record<string, string>, overrides: Record<string, string>): Record<string, string> {
+  const merged = { ...defaults };
+  for (const [name, value] of Object.entries(overrides)) {
+    for (const existing of Object.keys(merged)) {
+      if (existing.toLowerCase() === name.toLowerCase()) delete merged[existing];
+    }
+    merged[name] = value;
+  }
+  return merged;
 }
 
 // Follows only same-endpoint slash normalization so redirects cannot evade path policy or carry authority elsewhere.

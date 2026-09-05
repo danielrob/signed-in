@@ -1113,6 +1113,42 @@ test('HTTP gateway injects bearer auth and redacts echoed authorization', async 
   }
 });
 
+// Proves curl-style header casing cannot hide a JSON body behind a duplicated adapter default.
+test('HTTP gateway forwards POST bodies with case-insensitive header overrides', async () => {
+  let receivedBody = '';
+  let receivedContentType: string | undefined;
+  const server = http.createServer(async (request, response) => {
+    receivedBody = (await readIncomingBody(request)).toString('utf8');
+    receivedContentType = request.headers['content-type'];
+    response.setHeader('content-type', 'application/json');
+    response.end('{"success":true}');
+  });
+  await listen(server);
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    const body = Buffer.from('{"name":"publication-candidate"}', 'utf8');
+    const response = await performGatewayRequest({
+      body,
+      credentials: { token: 'gateway-secret-value' },
+      gateway: {
+        auth: { field: 'token', type: 'bearer' },
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        defaultHeaders: { 'content-type': 'application/problem+json' },
+      },
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      path: '/database',
+      secrets: ['gateway-secret-value'],
+    });
+    assert.equal(response.status, 200);
+    assert.equal(receivedBody, body.toString('utf8'));
+    assert.equal(receivedContentType, 'application/json');
+  } finally {
+    await close(server);
+  }
+});
+
 test('HTTP gateway follows only same-origin canonical redirects', async () => {
   const server = http.createServer((request, response) => {
     if (request.url === '/products') {
@@ -1996,6 +2032,16 @@ function requestThroughUnixSocket(socketPath: string, authority: string): Promis
     });
     request.on('error', reject);
     request.end();
+  });
+}
+
+// Buffers one small fixture request so gateway tests can assert exactly what crossed the HTTP boundary.
+function readIncomingBody(request: http.IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => resolve(Buffer.concat(chunks)));
+    request.on('error', reject);
   });
 }
 
