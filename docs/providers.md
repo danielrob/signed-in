@@ -83,6 +83,22 @@ between aliases. The encryption key and refreshed credentials are re-sealed in s
 after each command; temporary session files are removed afterward. gws auth errors become the usual
 exit-75 `signed-in login gws@alias` remedy. Revocation is not repaired by borrowing another login.
 
+### Cloudflare
+
+Each `cloudflare@alias` retains a separate Wrangler OAuth session. The alias selects a user login,
+not a single Cloudflare account: one OAuth user may have memberships in several accounts, and
+Wrangler or the API path selects the account for an operation. Concurrent operations using the same
+alias are serialized while its rotating OAuth refresh state is read and re-sealed; different aliases
+remain independent.
+
+Wrangler verifies the injected token with `GET /client/v4/user/tokens/verify` before commands such as
+`whoami`. The native proxy permits exactly that read-only internal request. Direct agent requests to
+token endpoints remain credential-control operations and are denied. A successful browser login
+privately captures the Wrangler email identity so projects can distinguish Cloudflare users as well
+as aliases. A resource endpoint's `401` response invalidates the connection only when Cloudflare's
+catalog-owned user probe also rejects it, so missing account or product permissions do not create a
+false sign-in loop.
+
 ### Polar
 
 Polar's current CLI owns OAuth login/logout and a small set of listen/migrate/update workflows. It

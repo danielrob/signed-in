@@ -364,17 +364,12 @@ async function runProxyDeliveredCommand(options: {
       credentials: options.credentials.fields,
       gateway: options.provider.http,
       onRequest: (request) => {
-        const classification = classifyOperation({
-          environment: options.config.environment,
-          interface: 'http',
-          method: request.method,
-          path: request.path,
-          projectId: options.config.project.id,
+        assertNativeProxyRequestAllowed({
+          config: options.config,
+          provider: options.provider,
           providerId: options.providerId,
-        }, options.provider);
-        if (classification === 'credential-control') {
-          throw new Error('Credential-control endpoint denied inside native CLI operation');
-        }
+          request,
+        });
       },
       secrets: options.secrets,
     };
@@ -427,6 +422,35 @@ async function runProxyDeliveredCommand(options: {
     if (proxy) await proxy.close();
     sandbox.cleanup();
   }
+}
+
+// Keeps reviewed native CLI preflights testable without opening the same endpoint to direct gateway calls.
+export function assertNativeProxyRequestAllowed(options: {
+  config: SignedInProjectConfig;
+  provider: ProviderConfig;
+  providerId: string;
+  request: { method: string; path: string };
+}): void {
+  const classification = classifyOperation({
+    environment: options.config.environment,
+    interface: 'http',
+    method: options.request.method,
+    path: options.request.path,
+    projectId: options.config.project.id,
+    providerId: options.providerId,
+  }, options.provider);
+  if (classification === 'credential-control' && !isProxyPolicyAllowlisted(options.provider, options.request)) {
+    throw new Error('Credential-control endpoint denied inside native CLI operation');
+  }
+}
+
+// Allows only an exact adapter-reviewed read that a native CLI needs internally, without broadening direct HTTP policy.
+function isProxyPolicyAllowlisted(
+  provider: ProviderConfig,
+  request: { method: string; path: string },
+): boolean {
+  return (provider.cli?.proxyPolicyAllowlist ?? []).some((allowed) =>
+    allowed.method === request.method.toUpperCase() && allowed.path === request.path);
 }
 
 // Writes only sealed provider metadata into the disposable command home and expands the broker-owned socket path.

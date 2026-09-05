@@ -58,6 +58,10 @@ export interface NativeCliConfig {
   command: string;
   delivery?: NativeDelivery;
   prefixArgs?: string[];
+  proxyPolicyAllowlist?: Array<{
+    method: 'GET' | 'HEAD';
+    path: string;
+  }>;
   proxySocket?: {
     configPath: string;
     configTemplate: string;

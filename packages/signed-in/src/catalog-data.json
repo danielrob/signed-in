@@ -571,6 +571,12 @@
       "cli": {
         "command": "wrangler",
         "delivery": "proxy",
+        "proxyPolicyAllowlist": [
+          {
+            "method": "GET",
+            "path": "/client/v4/user/tokens/verify"
+          }
+        ],
         "verifyArgs": [
           "whoami"
         ]
@@ -615,6 +621,11 @@
         ]
       },
       "installHint": "https://developers.cloudflare.com/workers/wrangler/install-and-update/",
+      "identityArgs": [
+        "whoami",
+        "--json"
+      ],
+      "identityJsonField": "email",
       "ping": {
         "interface": "http",
         "method": "GET",

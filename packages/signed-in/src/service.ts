@@ -99,6 +99,7 @@ export class SignedInError extends Error {
 // Owns every operation that may read credentials so IPC handlers never manipulate secret material directly.
 export class SignedInService {
   readonly #audit: AuditLog;
+  readonly #connectionOperations = new Map<string, Promise<void>>();
   readonly #paths: SignedInPaths;
   readonly #store: SecretStore;
 
@@ -303,6 +304,7 @@ export class SignedInService {
     const existing = input.account ? this.#connectionByAlias(input.providerId, input.account) : undefined;
     if (existing && !input.approved) throw new SignedInError('APPROVAL_REQUIRED', `Reconnect ${input.providerId}@${existing.alias}?`);
     const connectionId = existing?.id ?? createConnectionId();
+    return this.#withConnectionOperation(input.providerId, connectionId, async () => {
     const prepared = this.#prepareExecutable(input.providerId, service);
     const credentialKey = connectionCredentialStoreKey(input.providerId, connectionId);
     const sessionKey = connectionSessionStoreKey(input.providerId, connectionId);
@@ -376,6 +378,7 @@ export class SignedInService {
       }
       throw error;
     }
+    });
   }
 
   // Reports only whether a catalog-supported local CLI login is usable and the non-secret identity it represents.
@@ -510,6 +513,7 @@ export class SignedInService {
     };
     const decision = evaluatePolicy(config, operation);
     assertPolicyDecision(decision, input.approved);
+    return this.#withConnectionOperation(input.providerId, connection.id, async () => {
     const prepared = this.#prepareExecutable(input.providerId, service);
     const credentials = this.#store.get<CredentialRecord>(connectionCredentialStoreKey(input.providerId, connection.id)) ?? emptyCredentialRecord();
     const session = this.#store.get<SessionBundle>(connectionSessionStoreKey(input.providerId, connection.id));
@@ -539,6 +543,7 @@ export class SignedInService {
       }
       throw error;
     }
+    });
   }
 
   // Proves one stored connection against a catalog-owned read probe while discarding every provider response byte.
@@ -645,6 +650,7 @@ export class SignedInService {
     const project = input.projectId ? this.#trustedProject(input.projectId) : undefined;
     const service = this.#service(input.providerId, project);
     if (!service.http) throw new SignedInError('NO_HTTP_GATEWAY', `${service.label} has no HTTP gateway`);
+    const gateway = service.http;
     const connection = this.#resolveConnection(input.providerId, input.account, project);
     const method = input.method.toUpperCase();
     const config = effectivePolicyConfig(input.providerId, service, project);
@@ -658,6 +664,7 @@ export class SignedInService {
     };
     const decision = evaluatePolicy(config, operation);
     assertPolicyDecision(decision, input.approved);
+    return this.#withConnectionOperation(input.providerId, connection.id, async () => {
     const credentialKey = connectionCredentialStoreKey(input.providerId, connection.id);
     const sessionKey = connectionSessionStoreKey(input.providerId, connection.id);
     const storedCredentials = this.#store.get<CredentialRecord>(credentialKey) ?? emptyCredentialRecord();
@@ -682,14 +689,24 @@ export class SignedInService {
       const response = await performGatewayRequest({
         body,
         credentials: refreshed.credentials.fields,
-        gateway: service.http,
+        gateway,
         headers: input.headers ?? {},
         method,
         path: input.path,
         secrets,
         ...(signal ? { signal } : {}),
       });
-      if (response.status === 401) throw new ProviderAuthenticationError('Provider rejected the stored authentication');
+      if (response.status === 401 && await this.#authenticationProbeRejects({
+        credentials: refreshed.credentials.fields,
+        gateway,
+        originalMethod: method,
+        originalPath: input.path,
+        secrets,
+        service,
+        ...(signal ? { signal } : {}),
+      })) {
+        throw new ProviderAuthenticationError('Provider rejected the stored authentication');
+      }
       if (refreshExecutable?.pin && !refreshExecutable.wasPinned) this.#store.set(binaryPinStoreKey(input.providerId), refreshExecutable.pin);
       this.#audit.complete(receipt, { status: 'completed' });
       return { account: connection.alias, receiptId: receipt.id, response };
@@ -701,6 +718,7 @@ export class SignedInService {
       }
       throw error;
     }
+    });
   }
 
   // Returns the exact account-independent policy result plus the alias runtime resolution would use.
@@ -1279,6 +1297,54 @@ export class SignedInService {
       return identity || undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  // Serializes one connection's rotating refresh state while leaving unrelated providers and aliases concurrent.
+  async #withConnectionOperation<T>(serviceId: string, connectionId: string, operation: () => Promise<T>): Promise<T> {
+    const key = `${serviceId}/${connectionId}`;
+    const previous = this.#connectionOperations.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.#connectionOperations.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#connectionOperations.get(key) === tail) this.#connectionOperations.delete(key);
+    }
+  }
+
+  // Requires a catalog-owned auth probe to corroborate an endpoint 401 before invalidating the whole connection.
+  async #authenticationProbeRejects(options: {
+    credentials: Record<string, string>;
+    gateway: NonNullable<ServiceConfig['http']>;
+    originalMethod: string;
+    originalPath: string;
+    secrets: string[];
+    service: ServiceConfig;
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const ping = options.service.ping;
+    if (!ping || ping.interface !== 'http') return true;
+    const pingMethod = (ping.method ?? 'GET').toUpperCase();
+    if (pingMethod === options.originalMethod && ping.path === options.originalPath) return true;
+    try {
+      const response = await performGatewayRequest({
+        body: Buffer.alloc(0),
+        credentials: options.credentials,
+        gateway: options.gateway,
+        headers: {},
+        method: pingMethod,
+        path: ping.path,
+        secrets: options.secrets,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      return response.status === 401;
+    } catch {
+      return false;
     }
   }
 

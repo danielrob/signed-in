@@ -396,6 +396,7 @@ function validateCli(providerId: string, value: unknown, source: string): void {
   if (value.delivery !== undefined && !['environment', 'none', 'proxy', 'session'].includes(String(value.delivery))) {
     throw new Error(`${source}: ${providerId}.cli.delivery is unsupported`);
   }
+  if (value.proxyPolicyAllowlist !== undefined) validateProxyPolicyAllowlist(providerId, value, source);
   if (value.proxySocket !== undefined) {
     if (!isRecord(value.proxySocket)) throw new Error(`${source}: ${providerId}.cli.proxySocket must be an object`);
     const configPath = requireString(value.proxySocket.configPath, `${source}: ${providerId}.cli.proxySocket.configPath`);
@@ -410,6 +411,27 @@ function validateCli(providerId: string, value: unknown, source: string): void {
     if (value.delivery !== 'proxy') {
       throw new Error(`${source}: ${providerId}.cli.proxySocket requires proxy delivery`);
     }
+  }
+}
+
+// Limits native-proxy policy exceptions to exact, read-only provider requests reviewed in the sealed adapter.
+function validateProxyPolicyAllowlist(providerId: string, cli: Record<string, unknown>, source: string): void {
+  if (cli.delivery !== 'proxy') throw new Error(`${source}: ${providerId}.cli.proxyPolicyAllowlist requires proxy delivery`);
+  if (!Array.isArray(cli.proxyPolicyAllowlist) || cli.proxyPolicyAllowlist.length === 0) {
+    throw new Error(`${source}: ${providerId}.cli.proxyPolicyAllowlist must contain at least one request`);
+  }
+  const seen = new Set<string>();
+  for (const [index, request] of cli.proxyPolicyAllowlist.entries()) {
+    if (!isRecord(request) || !['GET', 'HEAD'].includes(String(request.method))) {
+      throw new Error(`${source}: ${providerId}.cli.proxyPolicyAllowlist[${index}].method must be GET or HEAD`);
+    }
+    const requestPath = requireString(request.path, `${source}: ${providerId}.cli.proxyPolicyAllowlist[${index}].path`);
+    if (!requestPath.startsWith('/') || requestPath.startsWith('//') || /[?#\r\n]/u.test(requestPath)) {
+      throw new Error(`${source}: ${providerId}.cli.proxyPolicyAllowlist[${index}].path must be an exact relative path without query or fragment`);
+    }
+    const key = `${request.method} ${requestPath}`;
+    if (seen.has(key)) throw new Error(`${source}: ${providerId}.cli.proxyPolicyAllowlist contains duplicate request '${key}'`);
+    seen.add(key);
   }
 }
 

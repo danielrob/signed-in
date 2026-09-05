@@ -1156,8 +1156,9 @@ test('HTTP gateway follows only same-origin canonical redirects', async () => {
 });
 
 test('service HTTP ping proves authority without returning the provider response', async () => {
+  let rejectAuthentication = false;
   const server = http.createServer((request, response) => {
-    if (request.url === '/unauthorized') response.statusCode = 401;
+    if (request.url === '/unauthorized' || rejectAuthentication) response.statusCode = 401;
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ authorization: request.headers.authorization, private: 'provider-body' }));
   });
@@ -1197,8 +1198,12 @@ test('service HTTP ping proves authority without returning the provider response
     assert.equal(result.status, 200);
     assert.deepEqual(result.target, { label: 'deployment', value: null });
     assert.doesNotMatch(JSON.stringify(result), /ping-secret|provider-body/u);
+    const denied = await service.request({ method: 'GET', path: '/unauthorized', projectId: 'test-project', providerId: 'demo' });
+    assert.equal(denied.response.status, 401);
+    assert.equal(service.serviceStatuses('test-project').find((status) => status.id === 'demo')?.state, 'connected');
+    rejectAuthentication = true;
     await assert.rejects(
-      service.request({ method: 'GET', path: '/unauthorized', projectId: 'test-project', providerId: 'demo' }),
+      service.request({ method: 'GET', path: '/expired', projectId: 'test-project', providerId: 'demo' }),
       (error: unknown) => error instanceof SignedInError
         && error.code === 'AUTH_REQUIRED'
         && error.message === 'Demo rejected the stored credential'
@@ -1440,7 +1445,9 @@ test('native credential proxy replaces dummy auth after TLS and redacts the upst
   const certificate = createSelfSignedCertificate('localhost');
   const upstream = https.createServer(certificate, (request, response) => {
     response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ authorization: request.headers.authorization, ok: true }));
+    response.setHeader('transfer-encoding', 'chunked');
+    response.write(`{"authorization":${JSON.stringify(request.headers.authorization)},"ok":`);
+    response.end('true}');
   });
   await listen(upstream);
   const address = upstream.address();
@@ -1459,6 +1466,8 @@ test('native credential proxy replaces dummy auth after TLS and redacts the upst
     assert.ok(Number.parseInt(serial[0] ?? 'f', 16) < 8, `ephemeral CA serial must be positive: ${serial}`);
     const response = await requestThroughConnectProxy(proxy.url, proxy.caCertificate, `localhost:${address.port}`);
     assert.match(response, /200 OK/u);
+    assert.doesNotMatch(response, /transfer-encoding:/iu);
+    assert.match(response, /content-length:/iu);
     assert.match(response, /\[REDACTED\]/u);
     assert.doesNotMatch(response, /real-proxy-secret|dummy-value/u);
   } finally {

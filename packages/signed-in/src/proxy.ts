@@ -234,6 +234,9 @@ function sanitizeUpstreamResponse(
   } else if (/^(?:text\/|application\/(?:xml|x-www-form-urlencoded))/iu.test(contentType)) {
     body = Buffer.from(redactText(body.toString('utf8'), secrets), 'utf8');
   }
+  for (const name of ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']) {
+    delete headers[name];
+  }
   const safeHeaders = Object.fromEntries(Object.entries(headers).map(([name, value]) => [
     name,
     Array.isArray(value)
