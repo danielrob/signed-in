@@ -250,6 +250,8 @@ function resolveMemoryBackedTempRoot(): string {
 function isDisposableSessionDirectory(relativePath: string): boolean {
   const segments = relativePath.split(path.sep).map((segment) => segment.toLowerCase());
   if (segments.join('/') === '.aws/login/cache') return false;
+  // Package-manager downloads are neither provider authority nor useful enough to consume the encrypted session budget.
+  if (segments[0] === '.npm') return true;
   return segments.some((segment) => ['cache', 'caches', 'logs', 'telemetry', 'tmp', 'venv', 'virtenv'].includes(segment.replace(/^\./u, '')));
 }
 

@@ -963,6 +963,7 @@
       },
       "session": {
         "env": {
+          "CI": "1",
           "SHOPIFY_CLI_NO_ANALYTICS": "1"
         },
         "loginArgs": [

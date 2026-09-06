@@ -359,6 +359,10 @@ test('built-in catalog separates interactive sign-in from manual runtime CLIs', 
     delivery: 'session',
   });
   assert.equal(builtInServices.shopify?.existingLogin, undefined);
+  assert.deepEqual(builtInServices.shopify?.session?.env, {
+    CI: '1',
+    SHOPIFY_CLI_NO_ANALYTICS: '1',
+  });
   assert.deepEqual(builtInServices.shopify?.session?.loginArgs, ['auth', 'login', '--alias', 'signed-in']);
   assert.deepEqual(builtInServices.shopify?.session?.remoteLoginArgs, ['auth', 'login', '--alias', 'signed-in']);
   assert.deepEqual(builtInServices.shopify?.ping, { args: ['organization', 'list', '--json'], interface: 'native' });
@@ -900,14 +904,17 @@ test('session bundles restore files under a private root', () => {
   mkdirSync(path.join(source, '.provider'), { recursive: true });
   mkdirSync(path.join(source, '.aws', 'login', 'cache'), { recursive: true });
   mkdirSync(path.join(source, '.cache'), { recursive: true });
+  mkdirSync(path.join(source, '.npm', '_cacache'), { recursive: true });
   writeFileSync(path.join(source, '.provider', 'tokens.json'), '{"token":"session-secret"}', { mode: 0o600 });
   writeFileSync(path.join(source, '.aws', 'login', 'cache', 'session.json'), '{"token":"aws-login-secret"}', { mode: 0o600 });
   writeFileSync(path.join(source, '.cache', 'noise.json'), '{}', { mode: 0o600 });
+  writeFileSync(path.join(source, '.npm', '_cacache', 'package.tgz'), 'disposable-package-cache', { mode: 0o600 });
   const bundle = snapshotBundle(source);
   materializeBundle(destination, bundle);
   assert.equal(readFileSync(path.join(destination, '.provider', 'tokens.json'), 'utf8'), '{"token":"session-secret"}');
   assert.equal(readFileSync(path.join(destination, '.aws', 'login', 'cache', 'session.json'), 'utf8'), '{"token":"aws-login-secret"}');
   assert.equal(bundle.files.some((file) => file.path === '.cache/noise.json'), false);
+  assert.equal(bundle.files.some((file) => file.path.startsWith('.npm/')), false);
 });
 
 test('existing login capture copies only declared paths and rejects symlinks', { skip: process.platform === 'win32' }, () => {
