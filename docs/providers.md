@@ -148,6 +148,10 @@ commands through `signed-in shopify ...` so they use that sealed session instead
 happens to be active in the global CLI. This account login does not itself grant access to a merchant's
 Admin API.
 
+Shopify CLI runs behind a non-interactive process boundary, so signed-in supplies the private Shopify
+session alias required by current CLI releases. That internal alias is isolated inside each connection
+and is separate from the routing name shown by `signed-in status`.
+
 Shopify's Dev MCP server supplies unauthenticated documentation, schemas, and validation; it is
 separate from merchant authority. For direct Admin API work, Shopify's CLI Connector app is the
 supported agent-oriented path. It deliberately adds a second, per-store authorization boundary. A

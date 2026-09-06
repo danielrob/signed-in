@@ -359,7 +359,8 @@ test('built-in catalog separates interactive sign-in from manual runtime CLIs', 
     delivery: 'session',
   });
   assert.equal(builtInServices.shopify?.existingLogin, undefined);
-  assert.deepEqual(builtInServices.shopify?.session?.loginArgs, ['auth', 'login']);
+  assert.deepEqual(builtInServices.shopify?.session?.loginArgs, ['auth', 'login', '--alias', 'signed-in']);
+  assert.deepEqual(builtInServices.shopify?.session?.remoteLoginArgs, ['auth', 'login', '--alias', 'signed-in']);
   assert.deepEqual(builtInServices.shopify?.ping, { args: ['organization', 'list', '--json'], interface: 'native' });
   assert.deepEqual(builtInServices.shopify?.target, {
     env: 'SHOPIFY_FLAG_STORE',

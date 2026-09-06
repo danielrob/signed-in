@@ -967,11 +967,15 @@
         },
         "loginArgs": [
           "auth",
-          "login"
+          "login",
+          "--alias",
+          "signed-in"
         ],
         "remoteLoginArgs": [
           "auth",
-          "login"
+          "login",
+          "--alias",
+          "signed-in"
         ],
         "retain": true
       },
