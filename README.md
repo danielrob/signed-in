@@ -136,6 +136,9 @@ signed-in ping --all
 signed-in ping --json
 ```
 
+The interactive home screen can test every saved alias and immediately offers the failed connections
+as one focused repair batch. JSON and other non-interactive checks remain prompt-free.
+
 Use an explicit alias when a service has more than one connection:
 
 ```sh

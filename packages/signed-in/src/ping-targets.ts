@@ -9,6 +9,11 @@ export interface ConnectionPingTarget {
   service: string;
 }
 
+// Produces exact reconnect routes so an all-connections failure cannot drift back to service defaults.
+export function formatConnectionRepairTargets(targets: readonly ConnectionPingTarget[]): string[] {
+  return targets.map((target) => `${target.service}@${target.account}`);
+}
+
 // Keeps the normal one-per-service probe distinct from the explicit audit of every saved alias.
 export function selectConnectionPingTargets(
   services: readonly PingTargetService[],

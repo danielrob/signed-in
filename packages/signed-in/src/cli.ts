@@ -16,7 +16,11 @@ import { findProviderLoginUrl, openExternalUrl } from './external-url.js';
 import type { GatewayResponse } from './http-gateway.js';
 import { runMcpServer } from './mcp.js';
 import { ensureSignedInDirectories, resolveSignedInPaths } from './paths.js';
-import { selectConnectionPingTargets } from './ping-targets.js';
+import {
+  formatConnectionRepairTargets,
+  selectConnectionPingTargets,
+  type ConnectionPingTarget,
+} from './ping-targets.js';
 import { confirm, promptText } from './prompt.js';
 import { eraseLocalSignedInState } from './recovery.js';
 import {
@@ -157,7 +161,7 @@ const commandHelp: Record<string, HelpPage> = {
   },
   ping: {
     examples: ['signed-in ping polar', 'signed-in ping github@work', 'signed-in ping --all', 'signed-in ping --json'],
-    notes: ['With no service, ping checks the selected connection for every connected service. Use --all to check every saved alias on the machine. Inside a trusted project, ordinary ping automatically enforces that project\'s identities, targets, and capability checks. Provider response bodies are discarded inside the daemon.'],
+    notes: ['With no service, ping checks the selected connection for every connected service. Use --all to check every saved alias on the machine. The interactive home screen offers to repair exactly the aliases that fail. Inside a trusted project, ordinary ping automatically enforces that project\'s identities, targets, and capability checks. Provider response bodies are discarded inside the daemon.'],
     summary: 'Prove that stored service authority still performs one safe authenticated read.',
     usage: ['signed-in ping [service[@alias] | --all] [--project <id>] [--json]'],
   },
@@ -485,8 +489,13 @@ interface FailedCliPing {
   ok: false;
 }
 
+interface PingRunSummary {
+  failures: ConnectionPingTarget[];
+  total: number;
+}
+
 // Runs one explicit probe or every configured service concurrently without returning provider response bodies.
-async function runPing(commandArgs: string[], projectOverride?: string): Promise<void> {
+async function runPing(commandArgs: string[], projectOverride?: string): Promise<PingRunSummary> {
   const parsed = parseOptions(commandArgs, { booleans: ['--all', '--json', '--quiet'], repeated: [], values: ['--project'] });
   if (parsed.positionals.length > 1) throw new Error(`Unexpected ping argument '${parsed.positionals[1]}'`);
   const everyConnection = parsed.booleans.has('--all');
@@ -496,15 +505,24 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
   if (everyConnection && projectSelection) throw new Error('--all tests machine connections and cannot be combined with --project');
   const projectId = everyConnection ? undefined : resolveProjectId(projectSelection);
   if (projectId && !explicit?.account) {
-    await runProjectPing(projectId, explicit?.service, parsed.booleans.has('--json'));
-    return;
+    const result = await runProjectPing(projectId, explicit?.service, parsed.booleans.has('--json'));
+    return {
+      failures: result.services.filter((service) => !service.ok).map((service) => ({
+        account: service.account,
+        service: service.providerId,
+      })),
+      total: result.services.length,
+    };
   }
   if (explicit) {
     const checked = await pingTarget(explicit, projectId);
     if (parsed.booleans.has('--json')) printJson({ ok: checked.ok, result: checked, schema: 1 });
     else if (!quietMode) printPingResult(checked);
     if (!checked.ok) process.exitCode = 1;
-    return;
+    return {
+      failures: checked.ok ? [] : [{ account: checked.account, service: checked.providerId }],
+      total: 1,
+    };
   }
   const services = await serviceStatuses(projectId);
   const targets = selectConnectionPingTargets(services, everyConnection);
@@ -531,6 +549,34 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
     })));
   }
   if (!ok) process.exitCode = 1;
+  return {
+    failures: targets.filter((_, index) => !checked[index]?.ok),
+    total: targets.length,
+  };
+}
+
+// Turns a completed interactive audit into a focused reconnect batch while retaining a runnable fallback.
+async function offerFailedPingRepairs(summary: PingRunSummary, embedded: boolean): Promise<void> {
+  if (summary.failures.length === 0) {
+    const message = `All ${summary.total} ${summary.total === 1 ? 'connection' : 'connections'} authenticated.`;
+    if (embedded) tuiSuccess(message);
+    else tuiOutro(message);
+    return;
+  }
+  const targets = formatConnectionRepairTargets(summary.failures);
+  const count = targets.length;
+  const repair = await tuiConfirm(
+    count === 1 ? `Repair ${targets[0]} now?` : `Repair ${count} failed connections now?`,
+    'Repair',
+    'Not now',
+  );
+  if (repair) {
+    process.exitCode = undefined;
+    await runLogin(targets, undefined, true, embedded);
+    return;
+  }
+  tuiNote(`signed-in login ${targets.join(' ')}`, 'Run later');
+  if (!embedded) tuiOutro('Connection test finished.');
 }
 
 // Resolves catalog metadata before invoking the daemon-owned probe for one service and alias.
@@ -566,7 +612,7 @@ function pingResultStatus(result: ServicePingResult): string {
 }
 
 // Deepens the ordinary ping automatically when a trusted project has identities, targets, or capabilities to prove.
-async function runProjectPing(projectId: string, providerId: string | undefined, json: boolean): Promise<void> {
+async function runProjectPing(projectId: string, providerId: string | undefined, json: boolean): Promise<ProjectVerificationResult> {
   const result = await call('project.verify', {
     cwd: process.cwd(),
     projectId,
@@ -597,6 +643,7 @@ async function runProjectPing(projectId: string, providerId: string | undefined,
     }));
   }
   if (!result.ok) process.exitCode = 1;
+  return result;
 }
 
 // Renders configured connections by default and turns --all into the calm service-catalog browser.
@@ -714,7 +761,8 @@ async function runConnections(commandArgs: string[], introShown = false): Promis
       continue;
     }
     if (selected === 'test') {
-      await runPing(['--all']);
+      const summary = await runPing(['--all']);
+      await offerFailedPingRepairs(summary, true);
       continue;
     }
     const target = parseServiceTarget(selected.slice('connection:'.length));
@@ -865,8 +913,8 @@ async function runHome(projectOverride?: string): Promise<void> {
     return;
   }
   if (action === 'test') {
-    await runPing(['--all']);
-    tuiOutro('Connection test finished.');
+    const summary = await runPing(['--all']);
+    await offerFailedPingRepairs(summary, false);
     return;
   }
   if (action === 'skill') {

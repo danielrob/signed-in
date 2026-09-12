@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { selectConnectionPingTargets } from '../packages/signed-in/src/ping-targets.js';
+import {
+  formatConnectionRepairTargets,
+  selectConnectionPingTargets,
+} from '../packages/signed-in/src/ping-targets.js';
 
-// Proves the explicit all-connections mode includes secondary aliases without changing normal selection rules.
+// Proves all-connections mode includes secondary aliases and carries exact failures into repair.
 test('ping targets distinguish selected services from every saved connection', () => {
   const services = [
     {
@@ -33,5 +36,12 @@ test('ping targets distinguish selected services from every saved connection', (
     { account: 'work', service: 'github' },
     { account: 'staging', service: 'datocms' },
     { account: 'production', service: 'datocms' },
+  ]);
+  assert.deepEqual(formatConnectionRepairTargets([
+    { account: 'project-universal', service: 'polar' },
+    { account: 'example-project', service: 'shopify' },
+  ]), [
+    'polar@project-universal',
+    'shopify@example-project',
   ]);
 });

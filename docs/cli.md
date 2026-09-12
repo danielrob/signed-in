@@ -93,7 +93,9 @@ one exists, otherwise a minimal authenticated list or status call. A named servi
 connection. With no service name, `ping` checks the selected connection for every connected service
 concurrently; `--all` checks every saved alias on the machine. The result reports only the interface,
 HTTP status or CLI exit code, and duration. Provider bodies and native output are discarded inside
-the daemon. Exit status is non-zero when any probe fails.
+the daemon. After an all-connections test from the interactive home or connection manager, the failed
+aliases are offered as one focused repair batch with an exact command for later. Exit status is
+non-zero when a failed test is left unrepaired.
 
 ## Agent skill installer
 
