@@ -72,7 +72,7 @@ Useful authentication commands:
 
 ```sh
 signed-in login [service[@alias]…] [--all] [--remote|--local]
-signed-in ping [service[@alias]] [--json]
+signed-in ping [service[@alias] | --all] [--json]
 signed-in status [service] [--all]
 signed-in connections [service[@alias]]
 signed-in use <service>@<alias>
@@ -83,16 +83,17 @@ signed-in logout <service>[@alias]
 ## Authenticated operations
 
 ```sh
-signed-in ping [service[@alias]] [--json]
+signed-in ping [service[@alias] | --all] [--json]
 signed-in <service>[@alias] [vendor CLI arguments...]
 signed-in request <service>[@alias] <METHOD> <path>
 ```
 
 `ping` performs each provider's safest identity-style read: a `/me` or `whoami` equivalent where
 one exists, otherwise a minimal authenticated list or status call. A named service checks that
-connection; no service checks every connected service concurrently. The result reports only the
-interface, HTTP status or CLI exit code, and duration. Provider bodies and native output are
-discarded inside the daemon. Exit status is non-zero when any probe fails.
+connection. With no service name, `ping` checks the selected connection for every connected service
+concurrently; `--all` checks every saved alias on the machine. The result reports only the interface,
+HTTP status or CLI exit code, and duration. Provider bodies and native output are discarded inside
+the daemon. Exit status is non-zero when any probe fails.
 
 ## Agent skill installer
 
@@ -205,7 +206,7 @@ signed-in status --project acme-app
 
 ```sh
 signed-in
-signed-in ping [service[@alias]] [--json]
+signed-in ping [service[@alias] | --all] [--json]
 signed-in status [--all] [--json]
 signed-in doctor [--json]
 signed-in project list [--json]
@@ -215,8 +216,8 @@ signed-in policy explain <service> --http <METHOD> <path>
 ```
 
 At an interactive terminal, bare `signed-in` always shows the current connection readout before one
-small next-action menu: connect or repair a service, manage existing connections, install the agent
-skill, or finish. Services with more than one connection show their default alias followed by the
+small next-action menu: connect or repair a service, manage or test existing connections, install the
+agent skill, or finish. Services with more than one connection show their default alias followed by the
 additional aliases; `signed-in status clerk` expands one service, while `signed-in connections
 clerk@work` opens management directly for that alias. Enter starts login when no service is connected
 or a connection needs attention, recommends the skill when a detected agent does not yet have it,

@@ -72,7 +72,7 @@ test('CLI help and version stay discoverable without starting the daemon', () =>
   assert.match(rootHelp.stdout, /signed-in[\s\S]*signed-in aws s3 ls/u);
   assert.match(rootHelp.stdout, /signed-in help agent/u);
   assert.match(rootHelp.stdout, /signed-in connections\s+repair or remove a connection/u);
-  assert.match(rootHelp.stdout, /signed-in ping \[service\]\s+prove authenticated access/u);
+  assert.match(rootHelp.stdout, /signed-in ping \[service\|--all\]\s+test authenticated access/u);
 
   const loginHelp = runSignedInCli(['login', '--help'], stateRoot);
   assert.equal(loginHelp.status, 0);
@@ -80,11 +80,12 @@ test('CLI help and version stay discoverable without starting the daemon', () =>
 
   const pingHelp = runSignedInCli(['ping', '--help'], stateRoot);
   assert.equal(pingHelp.status, 0);
-  assert.match(pingHelp.stdout, /Prove that stored service authority[\s\S]*signed-in ping \[service\[@alias\]\]/u);
+  assert.match(pingHelp.stdout, /Prove that stored service authority[\s\S]*signed-in ping \[service\[@alias\] \| --all\]/u);
+  assert.match(pingHelp.stdout, /every saved alias/u);
 
   const verifyHelp = runSignedInCli(['verify', '--help'], stateRoot);
   assert.equal(verifyHelp.status, 0);
-  assert.match(verifyHelp.stdout, /Compatibility alias for signed-in ping[\s\S]*signed-in verify \[service\]/u);
+  assert.match(verifyHelp.stdout, /Compatibility alias for signed-in ping[\s\S]*signed-in verify \[service\[@alias\] \| --all\]/u);
 
   const agentHelp = runSignedInCli(['help', 'agent'], stateRoot);
   assert.equal(agentHelp.status, 0);
@@ -118,6 +119,10 @@ test('CLI completions include pair identity and built-ins reject unknown flags',
   assert.equal(invalid.status, 1);
   assert.equal(invalid.stdout, '');
   assert.match(invalid.stderr, /Unknown option '--nope'/u);
+
+  const conflictingPing = runSignedInCli(['ping', 'github', '--all'], stateRoot);
+  assert.equal(conflictingPing.status, 1);
+  assert.match(conflictingPing.stderr, /Choose one connection or --all/u);
 
   const providerJson = runSignedInCli(['not-a-service', '--json'], stateRoot);
   assert.equal(providerJson.status, 1);

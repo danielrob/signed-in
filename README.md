@@ -132,6 +132,7 @@ Then prove the stored authority with a harmless authenticated request:
 
 ```sh
 signed-in ping github
+signed-in ping --all
 signed-in ping --json
 ```
 

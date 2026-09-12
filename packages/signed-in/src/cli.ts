@@ -16,6 +16,7 @@ import { findProviderLoginUrl, openExternalUrl } from './external-url.js';
 import type { GatewayResponse } from './http-gateway.js';
 import { runMcpServer } from './mcp.js';
 import { ensureSignedInDirectories, resolveSignedInPaths } from './paths.js';
+import { selectConnectionPingTargets } from './ping-targets.js';
 import { confirm, promptText } from './prompt.js';
 import { eraseLocalSignedInState } from './recovery.js';
 import {
@@ -155,15 +156,15 @@ const commandHelp: Record<string, HelpPage> = {
     ],
   },
   ping: {
-    examples: ['signed-in ping polar', 'signed-in ping github@work', 'signed-in ping --json'],
-    notes: ['With no service, ping checks every connected service. Inside a trusted project it automatically enforces that project\'s identities, targets, and capability checks. Provider response bodies are discarded inside the daemon.'],
+    examples: ['signed-in ping polar', 'signed-in ping github@work', 'signed-in ping --all', 'signed-in ping --json'],
+    notes: ['With no service, ping checks the selected connection for every connected service. Use --all to check every saved alias on the machine. Inside a trusted project, ordinary ping automatically enforces that project\'s identities, targets, and capability checks. Provider response bodies are discarded inside the daemon.'],
     summary: 'Prove that stored service authority still performs one safe authenticated read.',
-    usage: ['signed-in ping [service[@alias]] [--project <id>] [--json]'],
+    usage: ['signed-in ping [service[@alias] | --all] [--project <id>] [--json]'],
   },
   verify: {
     notes: ['This spelling is retained so existing commands keep working. New commands should use signed-in ping.'],
     summary: 'Compatibility alias for signed-in ping.',
-    usage: ['signed-in verify [service] [--project <id>] [--json]'],
+    usage: ['signed-in verify [service[@alias] | --all] [--project <id>] [--json]'],
   },
   policy: {
     examples: ['signed-in policy explain aws --json -- s3 ls', 'signed-in policy explain polar --http GET /v1/products --json'],
@@ -271,6 +272,7 @@ const helpGroups: Record<string, HelpPage> = {
     usage: [
       'signed-in connections [service[@alias]]',
       'signed-in status [service]',
+      'signed-in ping --all',
       'signed-in use <service>@<alias>',
       'signed-in alias <service>@<alias> <new-alias>',
       'signed-in logout <service>[@alias]',
@@ -485,10 +487,14 @@ interface FailedCliPing {
 
 // Runs one explicit probe or every configured service concurrently without returning provider response bodies.
 async function runPing(commandArgs: string[], projectOverride?: string): Promise<void> {
-  const parsed = parseOptions(commandArgs, { booleans: ['--json', '--quiet'], repeated: [], values: ['--project'] });
+  const parsed = parseOptions(commandArgs, { booleans: ['--all', '--json', '--quiet'], repeated: [], values: ['--project'] });
   if (parsed.positionals.length > 1) throw new Error(`Unexpected ping argument '${parsed.positionals[1]}'`);
-  const projectId = resolveProjectId(selectProjectOverride(parsed, projectOverride));
+  const everyConnection = parsed.booleans.has('--all');
   const explicit = parsed.positionals[0] ? parseServiceTarget(parsed.positionals[0]) : undefined;
+  if (everyConnection && explicit) throw new Error('Choose one connection or --all, not both');
+  const projectSelection = selectProjectOverride(parsed, projectOverride);
+  if (everyConnection && projectSelection) throw new Error('--all tests machine connections and cannot be combined with --project');
+  const projectId = everyConnection ? undefined : resolveProjectId(projectSelection);
   if (projectId && !explicit?.account) {
     await runProjectPing(projectId, explicit?.service, parsed.booleans.has('--json'));
     return;
@@ -501,18 +507,13 @@ async function runPing(commandArgs: string[], projectOverride?: string): Promise
     return;
   }
   const services = await serviceStatuses(projectId);
-  const targets = services.filter((service) => service.accounts.length > 0).map((service) => {
-    const selected = service.projectAccount
-      ? service.accounts.find((account) => account.account === service.projectAccount)
-      : service.accounts.find((account) => account.default) ?? service.accounts[0];
-    return { account: selected?.account, service: service.id } satisfies ServiceTarget;
-  });
+  const targets = selectConnectionPingTargets(services, everyConnection);
   if (targets.length === 0) throw new ActionableCliError('Nothing is connected to ping.', 'signed-in login');
   const checked = await Promise.all(targets.map(async (target): Promise<CliPingResult | FailedCliPing> => {
     try {
       return await pingTarget(target, projectId);
     } catch (error) {
-      if (canOfferSignIn(error)) throw error;
+      if (!everyConnection && canOfferSignIn(error)) throw error;
       const config = await serviceConfig(target.service, projectId);
       return { connection: formatTarget(target), error: renderError(error), label: config.label, ok: false };
     }
@@ -700,6 +701,7 @@ async function runConnections(commandArgs: string[], introShown = false): Promis
     const initial = attention ? `connection:${attention.serviceId}@${attention.connection.account}` : choices[0]?.value ?? 'add';
     const selected = await tuiSelect('Which connection do you want to manage?', [
       ...choices,
+      ...(choices.length > 0 ? [{ hint: 'Makes one safe authenticated request for every saved alias', label: 'Test all connections', value: 'test' }] : []),
       { hint: 'Connect another vendor or account', label: 'Add a connection', value: 'add' },
       { label: 'Done', value: 'done' },
     ], initial);
@@ -709,6 +711,10 @@ async function runConnections(commandArgs: string[], introShown = false): Promis
     }
     if (selected === 'add') {
       await runLogin([], undefined, true, true);
+      continue;
+    }
+    if (selected === 'test') {
+      await runPing(['--all']);
       continue;
     }
     const target = parseServiceTarget(selected.slice('connection:'.length));
@@ -842,6 +848,11 @@ async function runHome(projectOverride?: string): Promise<void> {
   const action = await tuiSelectOrDefault('What would you like to do?', [
     { hint: loginHint, label: loginLabel, value: 'login' },
     ...(accountCount > 0 ? [{ hint: 'Rename, switch, reconnect, or remove an account', label: 'Manage connections', value: 'connections' as const }] : []),
+    ...(accountCount > 0 ? [{
+      hint: `Makes one safe authenticated request for ${accountCount === 1 ? 'the saved connection' : `all ${accountCount} saved connections`}`,
+      label: 'Test all connections',
+      value: 'test' as const,
+    }] : []),
     { hint: homeSkillHint(skillState), label: 'Install the agent skill', value: 'skill' },
     { label: 'Done', value: 'done' },
   ], initial, 'done');
@@ -851,6 +862,11 @@ async function runHome(projectOverride?: string): Promise<void> {
   }
   if (action === 'connections') {
     await runConnections([], true);
+    return;
+  }
+  if (action === 'test') {
+    await runPing(['--all']);
+    tuiOutro('Connection test finished.');
     return;
   }
   if (action === 'skill') {
@@ -2718,7 +2734,7 @@ function formatAuditStatus(status: string): string {
 // Prints the complete surface while keeping login and direct service use visually primary.
 function printHelp(): void {
   printBrand();
-  process.stdout.write(`${ui.bold('Usage')}\n  signed-in                       connection readout and next actions\n  signed-in login                 connect a service\n  signed-in ping [service]        prove authenticated access\n  signed-in connections           repair or remove a connection\n  signed-in <service> …           run a vendor CLI\n  signed-in request <service> <METHOD> <path>\n                                  call a vendor API\n  signed-in status [service]      connection detail\n  signed-in doctor                check this machine\n\n${ui.bold('Examples')}\n  signed-in ping\n  signed-in aws s3 ls\n  signed-in github@work pr list\n  signed-in request polar GET /v1/products\n\n${ui.bold('More help')}\n  signed-in help agent            agents and scripts\n  signed-in help skill            install the agent guide\n  signed-in help connections      defaults, names, disconnecting\n  signed-in help machines         sharing across machines\n  signed-in help projects         per-project rules\n  signed-in help troubleshooting  repairs, daemon, reset\n`);
+  process.stdout.write(`${ui.bold('Usage')}\n  signed-in                       connection readout and next actions\n  signed-in login                 connect a service\n  signed-in ping [service|--all]  test authenticated access\n  signed-in connections           repair or remove a connection\n  signed-in <service> …           run a vendor CLI\n  signed-in request <service> <METHOD> <path>\n                                  call a vendor API\n  signed-in status [service]      connection detail\n  signed-in doctor                check this machine\n\n${ui.bold('Examples')}\n  signed-in ping\n  signed-in aws s3 ls\n  signed-in github@work pr list\n  signed-in request polar GET /v1/products\n\n${ui.bold('More help')}\n  signed-in help agent            agents and scripts\n  signed-in help skill            install the agent guide\n  signed-in help connections      defaults, names, disconnecting\n  signed-in help machines         sharing across machines\n  signed-in help projects         per-project rules\n  signed-in help troubleshooting  repairs, daemon, reset\n`);
 }
 
 // Resolves command, service, and agent topics without starting or unlocking the daemon.

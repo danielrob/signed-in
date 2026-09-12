@@ -12,12 +12,15 @@ authentication; never search for, request, print, or copy the underlying credent
 
 1. Run `signed-in help agent` for the current operating contract.
 2. Run `signed-in status [service] --json` to discover configured services, aliases, and remedies.
-3. Run `signed-in ping [service[@alias]] --json` when an authentication proof is useful. Inside a
+3. Run `signed-in ping [service[@alias] | --all] --json` when an authentication proof is useful. Inside a
    trusted project, this automatically checks its intended identity, provider target, and declared
    read capabilities too.
 4. Outside a project, the same command simply tests the selected standalone connection.
 5. Use the project-selected connection inside a trusted project. Otherwise use the default alias
    unless status shows multiple connections or the task names one explicitly.
+
+When asked to test all saved connections, run `signed-in ping --all --json`. This checks every alias,
+not only each service's selected default, and returns one aggregate result without provider bodies.
 
 ## Perform provider work
 
