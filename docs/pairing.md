@@ -58,7 +58,7 @@ Only fields whose provider uses `credentialMode: shared` and whose field is expl
 `portable: true` enter the payload. Provider sessions are never copied by the normal pairing path.
 
 Google Cloud, Gmail through GWS, GitHub, Cloudflare, Netlify, Polar, and Convex use independent machine authority. AWS,
-Clerk, Resend, OpenAI, Sentry, Better Stack, and similar providers copy fields only where the adapter
+Clerk, DatoCMS, Resend, OpenAI, Sentry, Better Stack, and similar providers copy fields only where the adapter
 deliberately defines the connection as shared.
 
 Portability is an explicit connection property, not a security ranking. Shared keys trade narrower

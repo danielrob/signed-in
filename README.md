@@ -203,8 +203,8 @@ do not silently change runtime authority. See the
 
 ## Built-in services
 
-AWS, Google Cloud, Gmail through GWS (read-only), Convex, Clerk, Netlify, Polar, Cloudflare, GitHub, Resend, OpenAI, Sentry, Better
-Stack, PostHog, Shopify, Stripe, App Store Connect, Meta, and npm are included. Their authentication and
+AWS, Google Cloud, Gmail through GWS (read-only), Convex, Clerk, DatoCMS, Netlify, Polar, Cloudflare, GitHub, Resend, OpenAI, Sentry,
+Better Stack, PostHog, Shopify, Stripe, App Store Connect, Meta, and npm are included. Their authentication and
 delivery modes differ; the [provider matrix](./docs/providers.md) documents the exact adapter.
 
 ## Security in one paragraph

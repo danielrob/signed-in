@@ -344,7 +344,7 @@ test('account grammar fails before authentication and names its reserved words',
 });
 
 test('built-in catalog separates interactive sign-in from manual runtime CLIs', () => {
-  assert.equal(Object.keys(builtInServices).length, 19);
+  assert.equal(Object.keys(builtInServices).length, 20);
   assert.equal(builtInServices.github?.signIn, 'interactive');
   assert.equal(builtInServices.stripe?.signIn, 'manual');
   assert.equal(builtInServices.openai?.signIn, 'manual');
@@ -373,6 +373,45 @@ test('built-in catalog separates interactive sign-in from manual runtime CLIs', 
   });
   assert.equal(builtInServices.shopify?.http, undefined);
   assert.deepEqual(builtInServices.github?.session?.loginArgs.slice(-4), ['--scopes', 'workflow', '--insecure-storage', '--skip-ssh-key']);
+  assert.deepEqual(builtInServices.datocms?.credentials, [{
+    env: 'DATOCMS_API_TOKEN',
+    helpUrl: 'https://www.datocms.com/docs/content-management-api/authentication',
+    id: 'apiToken',
+    label: 'DatoCMS API token',
+    portable: true,
+    secret: true,
+  }]);
+  assert.deepEqual(builtInServices.datocms?.http, {
+    auth: { field: 'apiToken', type: 'bearer' },
+    baseUrl: 'https://site-api.datocms.com',
+    defaultHeaders: {
+      accept: 'application/json',
+      'content-type': 'application/vnd.api+json',
+      'x-api-version': '3',
+    },
+  });
+  assert.deepEqual(builtInServices.datocms?.ping, { interface: 'http', method: 'GET', path: '/site' });
+  const datocmsConfig: SignedInProjectConfig = {
+    ...baseConfig,
+    providers: { datocms: builtInServices.datocms! },
+    services: { datocms: true },
+  };
+  assert.deepEqual(evaluatePolicy(datocmsConfig, {
+    interface: 'http', method: 'GET', path: '/site', providerId: 'datocms',
+  }), {
+    classification: 'read',
+    effect: 'allow',
+    matchedRules: ['signed-in:default-allow'],
+    reason: 'Read operations are allowed.',
+  });
+  assert.deepEqual(evaluatePolicy(datocmsConfig, {
+    interface: 'http', method: 'GET', path: '/access_tokens', providerId: 'datocms',
+  }), {
+    classification: 'credential-control',
+    effect: 'deny',
+    matchedRules: ['signed-in:credential-boundary'],
+    reason: 'Credential creation, extraction, and replacement are outside the agent capability boundary.',
+  });
   for (const service of Object.values(builtInServices)) {
     assert.ok(service.ping, `${service.label} needs an authentication probe`);
     if (service.cli) assert.ok(service.installHint, `${service.label} needs an installation remedy`);
@@ -1092,10 +1131,10 @@ esac
   }
 });
 
-test('HTTP gateway injects bearer auth and redacts echoed authorization', async () => {
+test('HTTP gateway treats JSON:API responses as text and redacts credential-shaped fields', async () => {
   const server = http.createServer((request, response) => {
-    response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ authorization: request.headers.authorization, id: 'safe' }));
+    response.setHeader('content-type', 'application/vnd.api+json');
+    response.end(JSON.stringify({ authorization: request.headers.authorization, id: 'safe', token: 'response-token-value' }));
   });
   await listen(server);
   const address = server.address();
@@ -1114,8 +1153,9 @@ test('HTTP gateway injects bearer auth and redacts echoed authorization', async 
       secrets: ['gateway-secret-value'],
     });
     assert.equal(response.status, 200);
-    assert.doesNotMatch(response.body, /gateway-secret-value/u);
-    assert.deepEqual(JSON.parse(response.body), { authorization: '[REDACTED]', id: 'safe' });
+    assert.equal(response.bodyEncoding, 'utf8');
+    assert.doesNotMatch(response.body, /gateway-secret-value|response-token-value/u);
+    assert.deepEqual(JSON.parse(response.body), { authorization: '[REDACTED]', id: 'safe', token: '[REDACTED]' });
   } finally {
     await close(server);
   }
@@ -1584,6 +1624,13 @@ test('service never exposes stored values and pairs only portable shared credent
     providerId: 'aws',
   });
   assert.equal(awsStatus.httpReady, true);
+  const datocmsStatus = service.putCredentials({
+    account: 'website',
+    fields: { apiToken: 'datocms-test-token' },
+    providerId: 'datocms',
+  });
+  assert.equal(datocmsStatus.httpReady, true);
+  assert.deepEqual(datocmsStatus.configuredFields, ['apiToken']);
 
   const destination = createMachineIdentity('destination');
   assert.throws(() => service.exportPairing({
@@ -1599,6 +1646,9 @@ test('service never exposes stored values and pairs only portable shared credent
   assert.deepEqual(decrypted.credentials.find((entry) => entry.providerId === 'aws')?.fields, {
     accessKeyId: 'shared-aws-id',
     secretAccessKey: 'shared-aws-secret',
+  });
+  assert.deepEqual(decrypted.credentials.find((entry) => entry.providerId === 'datocms')?.fields, {
+    apiToken: 'datocms-test-token',
   });
 
   const durableExecutable = path.join(root, process.platform === 'win32' ? 'demo-provider.cmd' : 'demo-provider');

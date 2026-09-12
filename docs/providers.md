@@ -28,6 +28,7 @@ Placeholders in fixed prefix arguments are limited to `{cwd}` and `{workspaceRoo
 | Gmail (`gws`) | Gmail read-only OAuth via `gws auth login` | reviewed Gmail reads | — | independent | ephemeral session |
 | Convex | `convex login` user token | Convex CLI | — | independent | ephemeral session |
 | Clerk | hidden backend secret key | — | Backend API | shared fallback | brokered HTTP |
+| DatoCMS | hidden project API token | — | Content Management API | shared fallback | brokered HTTP |
 | Netlify | `netlify login`, captured token extraction | `netlify` | REST API | independent | proxy |
 | Polar | `polar login`; separate organization token for full REST | current limited CLI | REST API | independent | session + brokered HTTP |
 | Cloudflare | Wrangler OAuth, private refreshed-token resolver | `wrangler` | v4 API | independent | proxy |
@@ -42,6 +43,20 @@ Placeholders in fixed prefix arguments are limited to `{cwd}` and `{workspaceRoo
 | App Store Connect | issuer, key ID, `.p8` | — | fresh ES256 JWT per call | shared fallback | brokered HTTP |
 | Meta | hidden system-user token | — | Graph API | shared fallback | brokered HTTP |
 | npm | hidden granular token | — | registry API | shared fallback | brokered HTTP |
+
+### DatoCMS
+
+DatoCMS access uses a project API token against the Content Management API. Create the narrowest role
+and API-surface grant that covers the intended work, then save it with `signed-in login datocms`.
+Requests automatically receive DatoCMS's version 3 and JSON:API headers. Select a non-primary DatoCMS
+environment per request with the documented `X-Environment` header, for example:
+
+```sh
+signed-in request datocms GET /items -H X-Environment:sandbox
+```
+
+The `/site` read is the authentication probe. DatoCMS access-token endpoints remain unavailable through
+the gateway because signed-in categorically blocks credential listing, minting, rotation, and deletion.
 
 ### Gmail / Google Workspace CLI
 

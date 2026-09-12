@@ -171,7 +171,7 @@ function safeResponseHeaders(headers: Headers, secrets: string[]): Record<string
 
 // Classifies text formats narrowly so arbitrary binary output is never decoded and corrupted.
 function isTextual(contentType: string): boolean {
-  return /^(?:text\/|application\/(?:graphql|json|problem\+json|xml|x-www-form-urlencoded))/iu.test(contentType);
+  return /^(?:text\/|application\/(?:graphql|json|[^;\s/]+\+json|xml|x-www-form-urlencoded))/iu.test(contentType);
 }
 
 // Supports exact and leading-wildcard aliases without admitting sibling domains.

@@ -391,6 +391,40 @@
       },
       "signIn": "manual"
     },
+    "datocms": {
+      "label": "DatoCMS",
+      "description": "Projects, records, models, assets, environments, and content workflows.",
+      "docsUrl": "https://www.datocms.com/docs/content-management-api",
+      "credentialMode": "shared",
+      "credentials": [
+        {
+          "id": "apiToken",
+          "label": "DatoCMS API token",
+          "env": "DATOCMS_API_TOKEN",
+          "helpUrl": "https://www.datocms.com/docs/content-management-api/authentication",
+          "portable": true,
+          "secret": true
+        }
+      ],
+      "http": {
+        "baseUrl": "https://site-api.datocms.com",
+        "auth": {
+          "type": "bearer",
+          "field": "apiToken"
+        },
+        "defaultHeaders": {
+          "accept": "application/json",
+          "content-type": "application/vnd.api+json",
+          "x-api-version": "3"
+        }
+      },
+      "ping": {
+        "interface": "http",
+        "method": "GET",
+        "path": "/site"
+      },
+      "signIn": "manual"
+    },
     "netlify": {
       "label": "Netlify",
       "description": "Sites, deploy metadata, domains, environment configuration, functions, and logs.",

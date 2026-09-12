@@ -67,6 +67,7 @@ test('status remains plain and readable in narrow and ASCII terminals', () => {
   });
   assert.equal(status.status, 0, status.stderr);
   assert.match(status.stdout, /AWS\s+- not connected/u);
+  assert.match(status.stdout, /DatoCMS\s+- not connected/u);
   assert.match(status.stdout, /Cloud infrastructure, release storage/u);
   assert.doesNotMatch(status.stdout, /\u001b\[/u);
   assert.ok(status.stdout.trimEnd().split('\n').every((line) => Array.from(line).length <= 48));
