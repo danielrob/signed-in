@@ -234,6 +234,13 @@ export async function runProviderLogin(options: {
   try {
     const isGws = options.provider.cli.adapter === 'gws-gmail';
     if (isGws) seedGwsClientConfig(sandbox);
+    const loginEnv = { ...sandbox.env };
+    if (options.provider.cli.command === 'shopify') {
+      // Shopify blocks device authorization in CI; disable its updater in the private session before enabling login.
+      await capturePrivateCommand(options.provider.cli, ['config', 'autoupgrade', 'off'], options.cwd, sandbox.env, options.callbacks.onChild, 30_000);
+      loginEnv.CI = '0';
+      loginEnv.SHOPIFY_CLI_FORCE_AUTO_UPGRADE = '0';
+    }
     const args = options.remote && options.provider.session.remoteLoginArgs
       ? options.provider.session.remoteLoginArgs
       : options.provider.session.loginArgs;
@@ -241,7 +248,7 @@ export async function runProviderLogin(options: {
       options.provider.cli,
       args,
       isGws ? sandbox.home : options.cwd,
-      sandbox.env,
+      loginEnv,
       options.callbacks,
       [...Object.values(options.credentials.fields), ...(isGws ? gwsLoginSecrets(sandbox.snapshot()) : sessionSecrets(options.session))],
     );
@@ -676,7 +683,9 @@ function executeChild(
     const stderrRedactor = new StreamRedactor(secrets);
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
-    const flushLoginLines = cli.adapter === 'gws-gmail' && args[0] === 'auth' && args[1] === 'login';
+    // Device-login codes and links must reach the person while browser approval is still pending.
+    const flushLoginLines = (cli.adapter === 'gws-gmail' || cli.command === 'shopify')
+      && args[0] === 'auth' && args[1] === 'login';
     child.stdout.on('data', (chunk: Buffer) => {
       const safe = `${stdoutRedactor.push(stdoutDecoder.write(chunk))}${stdoutRedactor.flushPrompt(flushLoginLines)}`;
       if (safe) callbacks.onStdout(Buffer.from(safe, 'utf8'));

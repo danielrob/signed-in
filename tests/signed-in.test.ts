@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, X509Certificate } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -28,7 +28,7 @@ import {
 import { evaluatePolicy } from '../packages/signed-in/src/policy.js';
 import { startCredentialProxy, startCredentialSocketProxy } from '../packages/signed-in/src/proxy.js';
 import { redactStructured, StreamRedactor } from '../packages/signed-in/src/redact.js';
-import { adoptExistingProviderLogin, discoverExistingProviderLogin, runProviderCommand } from '../packages/signed-in/src/runner.js';
+import { adoptExistingProviderLogin, discoverExistingProviderLogin, runProviderCommand, runProviderLogin } from '../packages/signed-in/src/runner.js';
 import { materializeBundle, snapshotBundle, snapshotDeclaredPaths } from '../packages/signed-in/src/session.js';
 import {
   accountCredentialStoreKey,
@@ -1825,6 +1825,139 @@ test('a removed sealed connection cannot redirect a project through a reused ali
     service.request({ method: 'GET', path: '/domains', projectId: 'test-project', providerId: 'resend' }),
     (error: unknown) => error instanceof SignedInError && error.code === 'PROJECT_CONNECTION_MISSING',
   );
+});
+
+// Reproduces Shopify's device-auth CI gate through piped subprocesses and checks that ordinary commands stay unattended.
+test('Shopify browser login permits device authorization without enabling runtime prompts or upgrades', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-shopify-login-'));
+  const executable = path.join(root, 'shopify-fixture.cjs');
+  writeFileSync(executable, `
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const settings = path.join(process.env.HOME, 'upgrade-disabled');
+const session = path.join(process.env.HOME, 'fixture-session');
+assert.equal(process.stdin.isTTY, undefined);
+assert.equal(process.env.SHOPIFY_CLI_NO_ANALYTICS, '1');
+if (args[0] === 'config') {
+  assert.deepEqual(args, ['config', 'autoupgrade', 'off']);
+  assert.equal(process.env.CI, '1');
+  fs.writeFileSync(settings, 'disabled');
+} else if (args[0] === 'auth') {
+  assert.deepEqual(args, ['auth', 'login', '--alias', 'signed-in']);
+  if (['1', 'true'].includes(process.env.CI)) {
+    process.stderr.write('Authorization is required to continue, but the current environment does not support interactive prompts.');
+    process.exit(1);
+  }
+  assert.equal(fs.readFileSync(settings, 'utf8'), 'disabled');
+  assert.equal(process.env.SHOPIFY_CLI_FORCE_AUTO_UPGRADE, '0');
+  fs.writeFileSync(session, 'fixture');
+  process.stdout.write('Device authorization available\\n');
+} else {
+  assert.deepEqual(args, ['organization', 'list', '--json']);
+  assert.equal(process.env.CI, '1');
+  assert.equal(fs.readFileSync(session, 'utf8'), 'fixture');
+  process.stdout.write('[]\\n');
+}
+`);
+  const provider = {
+    ...builtInServices.shopify!,
+    cli: { ...builtInServices.shopify!.cli!, prefixArgs: [executable], trustedExecutable: process.execPath },
+  };
+  const originalCi = process.env.CI;
+  try {
+    for (const remote of [false, true]) {
+      const output: Buffer[] = [];
+      const errors: Buffer[] = [];
+      const callbacks = { onStderr: (chunk: Buffer) => errors.push(chunk), onStdout: (chunk: Buffer) => output.push(chunk) };
+      const login = await runProviderLogin({
+        callbacks,
+        credentials: { fields: {}, updatedAt: new Date().toISOString() },
+        cwd: root,
+        provider,
+        remote,
+      });
+      assert.equal(login.exitCode, 0, Buffer.concat(errors).toString());
+      assert.match(Buffer.concat(output).toString(), /Device authorization available/u);
+      const command = await runProviderCommand({
+        args: ['organization', 'list', '--json'],
+        callbacks,
+        config: baseConfig,
+        credentials: login.credentials,
+        cwd: root,
+        provider,
+        providerId: 'shopify',
+        session: login.session,
+      });
+      assert.equal(command.exitCode, 0, Buffer.concat(errors).toString());
+      assert.equal(process.env.CI, originalCi);
+    }
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+// Holds the provider open until its code reaches the caller, so a post-exit flush cannot pass as timely login output.
+test('Shopify verification codes reach the caller before browser approval completes', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'signed-in-shopify-code-'));
+  const executable = path.join(root, 'shopify-code-fixture.cjs');
+  writeFileSync(executable, `
+const assert = require('node:assert/strict');
+if (process.argv[2] === 'config') process.exit(0);
+const output = process.env.FIXTURE_LOGIN_STREAM === 'stderr' ? process.stderr : process.stdout;
+// Makes delayed output fail while keeping a broken test from leaving a provider process running.
+const timeout = setTimeout(() => process.exit(1), 5000);
+// Finishes the simulated browser approval only after the caller has received the complete verification code.
+process.stdin.once('data', (chunk) => {
+  assert.equal(chunk.toString(), 'verified\\n');
+  clearTimeout(timeout);
+  process.stdout.write('Login completed\\n');
+  process.stdin.pause();
+});
+output.write('User verification code: ABCD-');
+// Splits the code across output chunks to exercise the same stream boundary as a real provider CLI.
+setTimeout(() => output.write('EFGH\\n'), 20);
+`);
+  try {
+    for (const stream of ['stdout', 'stderr']) {
+      let child: import('node:child_process').ChildProcessWithoutNullStreams | undefined;
+      let output = '';
+      let codeReceived = false;
+      // Acknowledges only the complete displayed code, rather than releasing the provider on a timer.
+      const observe = (chunk: Buffer): void => {
+        output += chunk.toString();
+        if (!codeReceived && output.includes('User verification code: ABCD-EFGH\n')) {
+          codeReceived = true;
+          if (child && !child.stdin.destroyed) child.stdin.end('verified\n');
+        }
+      };
+      const result = await runProviderLogin({
+        callbacks: {
+          // Tracks the login subprocess after the short setup command has exited.
+          onChild: (current) => { child = current; },
+          onStderr: observe,
+          onStdout: observe,
+        },
+        credentials: { fields: { token: 'synthetic-session-secret'.repeat(100) }, updatedAt: new Date().toISOString() },
+        cwd: root,
+        provider: {
+          ...builtInServices.shopify!,
+          cli: { ...builtInServices.shopify!.cli!, prefixArgs: [executable], trustedExecutable: process.execPath },
+          session: {
+            ...builtInServices.shopify!.session!,
+            env: { ...builtInServices.shopify!.session!.env, FIXTURE_LOGIN_STREAM: stream },
+          },
+        },
+        remote: stream === 'stderr',
+      });
+      assert.equal(result.exitCode, 0, `${stream} held the verification code until the provider timed out`);
+      assert.equal(codeReceived, true);
+      assert.match(output, /Login completed/u);
+    }
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test('a failed first provider login leaves no unnamed ghost connection', async () => {
