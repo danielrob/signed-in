@@ -10,8 +10,9 @@ test('signed-in help stays progressive and daemon-free', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'signed-in-ux-help-'));
   const help = runCli(['--help'], stateRoot);
   assert.equal(help.status, 0, help.stderr);
-  assert.ok(help.stdout.trimEnd().split('\n').length <= 26);
+  assert.ok(help.stdout.trimEnd().split('\n').length <= 27);
   assert.match(help.stdout, /signed-in aws s3 ls/u);
+  assert.match(help.stdout, /signed-in demo\s+preview fictional connections/u);
   assert.match(help.stdout, /help connections/u);
   assert.match(help.stdout, /help troubleshooting/u);
   assert.doesNotMatch(help.stdout, /daemon lifecycle|recipient-bound ciphertext/u);
@@ -26,6 +27,50 @@ test('signed-in help stays progressive and daemon-free', () => {
     assert.equal(compatibility.status, 0, compatibility.stderr);
   }
   assert.equal(existsSync(path.join(stateRoot, 'runtime')), false);
+});
+
+// Uses an unreadable fixture state to prove the public demo route never discovers accounts or starts the daemon.
+test('demo renders fictional connections without consulting machine state', () => {
+  const stateRoot = mkdtempSync(path.join(tmpdir(), 'signed-in-ux-demo-'));
+  const configDir = path.join(stateRoot, 'config');
+  const statePath = path.join(configDir, 'state.json');
+  mkdirSync(configDir);
+  writeFileSync(statePath, '{invalid machine state');
+
+  const screen = runCli(['demo'], stateRoot);
+  assert.equal(screen.status, 0, screen.stderr);
+  assert.match(screen.stdout, /13 services connected · 34 connections/u);
+  assert.match(screen.stdout, /production · also staging, sandbox/u);
+  assert.match(screen.stdout, /acme1 · also acme2, personal/u);
+  assert.equal(screen.stderr, '');
+  assert.doesNotMatch(screen.stdout, /What would you like to do/u);
+
+  const json = runCli(['demo', '--json'], stateRoot);
+  assert.equal(json.status, 0, json.stderr);
+  const payload = JSON.parse(json.stdout) as { demo: boolean; serviceCount: number; connectionCount: number; services: unknown[] };
+  assert.equal(payload.demo, true);
+  assert.equal(payload.serviceCount, payload.services.length);
+  assert.equal(payload.connectionCount, 34);
+  assert.equal(json.stderr, '');
+
+  const quiet = runCli(['--quiet', 'demo'], stateRoot);
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.equal(quiet.stdout, '');
+  assert.equal(quiet.stderr, '');
+  for (const args of [['demo', '--help'], ['help', 'demo']]) {
+    const help = runCli(args, stateRoot);
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /signed-in demo/u);
+    assert.match(help.stdout, /fictional/u);
+  }
+  for (const args of [['demo', 'unexpected'], ['demo', '--unexpected']]) {
+    const rejected = runCli(args, stateRoot);
+    assert.equal(rejected.status, 1, rejected.stderr);
+    assert.match(rejected.stderr, /Unexpected demo argument|Unknown option/u);
+  }
+  assert.equal(readFileSync(statePath, 'utf8'), '{invalid machine state');
+  assert.equal(existsSync(path.join(stateRoot, 'runtime')), false);
+  assert.equal(existsSync(path.join(stateRoot, 'data')), false);
 });
 
 // Exercises the packaged skill command through its real CLI boundary without touching personal agent directories.

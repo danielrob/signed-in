@@ -119,6 +119,14 @@ npm install --global signed-in
 
 ## Start here
 
+Preview the interface with fictional connections before signing in:
+
+```sh
+signed-in demo
+```
+
+When you are ready, connect your services:
+
 ```sh
 signed-in login
 ```

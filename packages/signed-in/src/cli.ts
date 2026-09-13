@@ -12,6 +12,7 @@ import { commandAvailable, installCli, resolveCliInstallPlan } from './cli-insta
 import { discoverProjectConfig, isSafeAccountName, loadMachineState, loadProjectConfig, reservedAccountNames, selectRegisteredProject } from './config.js';
 import { credentialValidationMessage } from './credential-validation.js';
 import { installDaemonService, uninstallDaemonService } from './daemon-install.js';
+import { renderDemoScreen } from './demo.js';
 import { findProviderLoginUrl, openExternalUrl } from './external-url.js';
 import type { GatewayResponse } from './http-gateway.js';
 import { runMcpServer } from './mcp.js';
@@ -89,7 +90,7 @@ const paths = resolveSignedInPaths();
 const rawArguments = process.argv.slice(process.argv[2] === '--' ? 3 : 2);
 const aliasNamingHint = 'Prefer <project>-<environment>, for example acme-production.';
 const builtInCommands = new Set([
-  '__complete', '__home', 'alias', 'audit', 'completion', 'connections', 'daemon', 'doctor', 'help', 'login', 'logout', 'mcp', 'pair',
+  '__complete', '__home', 'alias', 'audit', 'completion', 'connections', 'daemon', 'demo', 'doctor', 'help', 'login', 'logout', 'mcp', 'pair',
   'ping', 'policy', 'project', 'projects', 'rename', 'request', 'reset', 'setup', 'share-auth', 'skill', 'status', 'trust', 'use', 'verify',
 ]);
 interface HelpPage {
@@ -124,6 +125,15 @@ const commandHelp: Record<string, HelpPage> = {
     examples: ['signed-in doctor --json'],
     summary: 'Check the vault, project drift, machine identity, and provider binaries.',
     usage: ['signed-in doctor [--project <id>] [--json]'],
+  },
+  demo: {
+    examples: ['signed-in demo'],
+    notes: [
+      'Shows fictional personal, team, project, and environment connections. No saved accounts, daemon, or provider access is needed.',
+      'In a terminal, clears the screen and opens the home menu for screenshots. Enter or Ctrl+C exits without performing an action.',
+    ],
+    summary: 'Preview the home screen with fictional connections.',
+    usage: ['signed-in demo [--json] [--quiet]'],
   },
   help: {
     examples: ['signed-in help agent', 'signed-in help aws', 'signed-in login --help'],
@@ -363,6 +373,7 @@ try {
   else if (builtInCommands.has(command) && hasOwnedFlag(commandArgs, '--version')) process.stdout.write(`${readPackageVersion()}\n`);
   else if (command === 'completion') await runCompletion(commandArgs);
   else if (command === '__complete') runComplete(commandArgs);
+  else if (command === 'demo') await runDemo(commandArgs);
   else if (command === 'skill') await runSkillCommand(commandArgs);
   else if (command === 'status' && !leading.projectOverride && !hasOwnedFlag(commandArgs, '--project') && machineAppearsPristine()) {
     await runStatus(commandArgs, undefined, pristineServiceStatuses());
@@ -382,6 +393,13 @@ try {
   }
 } catch (error) {
   await handleCliFailure(error, recoveryProjectOverride);
+}
+
+// Routes the fictional preview before any account discovery, state initialization, or daemon startup.
+async function runDemo(commandArgs: string[]): Promise<void> {
+  const parsed = parseOptions(commandArgs, { booleans: ['--json', '--quiet'], repeated: [], values: [] });
+  if (parsed.positionals.length > 0) throw new Error(`Unexpected demo argument '${parsed.positionals[0]}'`);
+  await renderDemoScreen({ json: jsonMode, quiet: quietMode });
 }
 
 // Gives every authentication-required failure the same human recovery path while keeping automation prompt-free.
@@ -2218,7 +2236,7 @@ async function runCompletion(commandArgs: string[]): Promise<void> {
 
 // Reads only packaged catalog and owner-only state so tab completion never starts or unlocks the daemon.
 function runComplete(words: string[]): void {
-  const commands = ['alias', 'audit', 'completion', 'connections', 'daemon', 'doctor', 'login', 'logout', 'mcp', 'pair', 'ping', 'policy', 'project', 'rename', 'request', 'reset', 'share-auth', 'skill', 'status', 'trust', 'use'];
+  const commands = ['alias', 'audit', 'completion', 'connections', 'daemon', 'demo', 'doctor', 'login', 'logout', 'mcp', 'pair', 'ping', 'policy', 'project', 'rename', 'request', 'reset', 'share-auth', 'skill', 'status', 'trust', 'use'];
   const state = loadMachineState(paths.stateFile);
   const current = words.at(-1) ?? '';
   let values = [...commands, ...Object.keys(builtInServices)];
@@ -2782,7 +2800,7 @@ function formatAuditStatus(status: string): string {
 // Prints the complete surface while keeping login and direct service use visually primary.
 function printHelp(): void {
   printBrand();
-  process.stdout.write(`${ui.bold('Usage')}\n  signed-in                       connection readout and next actions\n  signed-in login                 connect a service\n  signed-in ping [service|--all]  test authenticated access\n  signed-in connections           repair or remove a connection\n  signed-in <service> …           run a vendor CLI\n  signed-in request <service> <METHOD> <path>\n                                  call a vendor API\n  signed-in status [service]      connection detail\n  signed-in doctor                check this machine\n\n${ui.bold('Examples')}\n  signed-in ping\n  signed-in aws s3 ls\n  signed-in github@work pr list\n  signed-in request polar GET /v1/products\n\n${ui.bold('More help')}\n  signed-in help agent            agents and scripts\n  signed-in help skill            install the agent guide\n  signed-in help connections      defaults, names, disconnecting\n  signed-in help machines         sharing across machines\n  signed-in help projects         per-project rules\n  signed-in help troubleshooting  repairs, daemon, reset\n`);
+  process.stdout.write(`${ui.bold('Usage')}\n  signed-in                       connection readout and next actions\n  signed-in login                 connect a service\n  signed-in ping [service|--all]  test authenticated access\n  signed-in connections           repair or remove a connection\n  signed-in <service> …           run a vendor CLI\n  signed-in request <service> <METHOD> <path>\n                                  call a vendor API\n  signed-in status [service]      connection detail\n  signed-in doctor                check this machine\n  signed-in demo                  preview fictional connections\n\n${ui.bold('Examples')}\n  signed-in ping\n  signed-in aws s3 ls\n  signed-in github@work pr list\n  signed-in request polar GET /v1/products\n\n${ui.bold('More help')}\n  signed-in help agent            agents and scripts\n  signed-in help skill            install the agent guide\n  signed-in help connections      defaults, names, disconnecting\n  signed-in help machines         sharing across machines\n  signed-in help projects         per-project rules\n  signed-in help troubleshooting  repairs, daemon, reset\n`);
 }
 
 // Resolves command, service, and agent topics without starting or unlocking the daemon.

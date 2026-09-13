@@ -22,6 +22,7 @@
     "dev": "pnpm --filter signed-in start",
     "dev:daemon": "pnpm --filter signed-in start:daemon",
     "dev:install": "node ./scripts/install-signed-in.mjs",
+    "demo:screen": "tsx ./packages/signed-in/src/cli.ts demo",
     "pack:check": "node ./scripts/check-package.mjs",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
