@@ -1,17 +1,5 @@
 # CLI reference
 
-## Demo
-
-```sh
-signed-in demo
-```
-
-Preview the home screen with fictional personal, team, project, and environment connections. In a
-terminal, the command clears the screen and opens the menu for screenshots. Enter or Ctrl+C exits;
-menu choices do not perform actions. The demo does not read saved accounts, start a daemon, or
-contact providers. Redirected output contains only the status rows; `--json` returns the fixture
-data with `demo: true`, and `--quiet` produces no output.
-
 ## First sign-in
 
 ```sh

@@ -17,6 +17,8 @@ name, and use the same interface from Codex, Claude Code, scripts, or an ordinar
 credential stays inside a user-scoped daemon while commands pass through connection selection,
 policy, redaction, and audit.
 
+![signed-in home screen with named connections and the interactive action menu](./docs/images/signed-in-demo.png)
+
 > [!IMPORTANT]
 > signed-in is pre-release software. Its cooperative guardrails are useful today, but it is not a
 > hostile-code sandbox for processes running as the same operating-system user. Read the
@@ -119,13 +121,7 @@ npm install --global signed-in
 
 ## Start here
 
-Preview the interface with fictional connections before signing in:
-
-```sh
-signed-in demo
-```
-
-When you are ready, connect your services:
+Connect your services:
 
 ```sh
 signed-in login

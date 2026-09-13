@@ -25,17 +25,7 @@ pnpm dev:install
 signed-in --version
 ```
 
-Render the home screen with fictional personal, team, project, and environment connections for documentation screenshots:
-
-```sh
-signed-in demo
-# Or run directly from source:
-pnpm -s demo:screen
-```
-
-This clears the terminal and uses the normal UI with fixed demo data. It does not read saved accounts,
-start the daemon, or contact providers. Capture the screen while the menu is open; Enter or Ctrl+C exits.
-Keep local screenshots under the ignored `artifacts/` directory until an image is selected for documentation.
+For documentation screenshots, `pnpm -s demo:screen` renders fictional connections.
 
 Use isolated signed-in state during tests. Tests must never read or alter an operator's real keychain,
 vault, provider profiles, or agent skill directories.
